@@ -616,5 +616,94 @@ m5Hypercall(ThreadContext *tc, uint64_t hypercall_id)
     curTick(),0, std::map<std::string, std::string>(), hypercall_id, true);
 }
 
+
+
+void
+amxLoadd(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem, size_t stride)
+{
+    DPRINTF(PseudoInst, "bringing data into cache\n");
+
+    // get the base cpu ptr through thread context so that we can interface with it's methods
+    BaseCPU *cpu = tc->getCpuPtr();
+
+    // BaseCPU has a virtual method, getDataPort()
+    // This returns a Port object, but we can cast it to a RequestPort
+    // Only RequestPort objects have the methods required to send memory requests
+    RequestPort* dcache_port = dynamic_cast<RequestPort*>(&cpu->getDataPort());
+    if (dcache_port == nullptr) {
+        DPRINTF(PseudoInst, "tile load failed to get the data port ptr.\n");
+        return;
+    }
+
+    int cache_line_size = 64;     
+    uint64_t aligned_src_mem = src_mem & ~(cache_line_size - 1);
+    Request::Flags flags = 0; // flag.. bitmask to specify information about the request. 
+    // Request::Flags flags = Request::PREFETCH | Request::NO_ACCESS;
+    // this request is a shared ptr and makes sure that cpp does grabage collection on it
+    RequestPtr req = std::make_shared<Request>(
+        aligned_src_mem,          // The virtual address
+        cache_line_size,          // Request size
+        flags,                    // Flags
+        cpu->dataRequestorId(),   // Requestor ID
+        tc->pcState().instAddr(), // The current Instruction PC
+        tc->contextId()           // The Thread Context ID
+    );
+    
+    // so we want to make sure that we have the actual virtual address
+    // this is how gem5 does it for the read and write m5ops
+
+    Fault fault = tc->getMMUPtr()->translateFunctional(req, tc, BaseMMU::Read);
+    if (fault != NoFault) {
+        DPRINTF(PseudoInst, "tile load failed translation\n");
+        return; 
+    }
+
+    PacketPtr fetch_pkt = new Packet(req, MemCmd::ReadReq);
+     // needs this to tell cache to create a space to hold the data
+     // "if either this command or the response command has a data payload, actually allocate space"
+    fetch_pkt->allocate();
+
+    // // the timing request
+    // a timing request takes a while to get back..
+    // right now i'm not sure how to get the code to send it back!
+    // if (dcache_port->sendTimingReq(fetch_pkt)) {
+    //     DPRINTF(PseudoInst, "tiled load packet sent\n");
+    // } else {
+    //     DPRINTF(PseudoInst, "tile load packet didn't send\n");
+    //     delete fetch_pkt; 
+    // }
+
+    dcache_port->sendFunctional(fetch_pkt); // functional access happen instantly
+    
+    // uint8_t* data = fetch_pkt->getPtr<uint8_t>();
+
+    DPRINTF(PseudoInst, "tile load complete\n");
+}
+
 } // namespace pseudo_inst
 } // namespace gem5
+
+
+// void
+// LSQ::SingleDataRequest::startAddrTranslation()
+// {
+//     ThreadContext *thread = port.cpu.getContext(
+//         inst->id.threadId);
+
+//     const auto &byte_enable = request->getByteEnable();
+//     if (isAnyActiveElement(byte_enable.cbegin(), byte_enable.cend())) {
+//         port.numAccessesInDTLB++;
+
+//         setState(LSQ::LSQRequest::InTranslation);
+
+//         DPRINTFS(MinorMem, (&port), "Submitting DTLB request\n");
+//         /* Submit the translation request.  The response will come through
+//          *  finish/markDelayed on the LSQRequest as it bears the Translation
+//          *  interface */
+//         thread->getMMUPtr()->translateTiming(
+//             request, thread, this, (isLoad ? BaseMMU::Read : BaseMMU::Write));
+//     } else {
+//         disableMemAccess();
+//         setState(LSQ::LSQRequest::Complete);
+//     }
+// }

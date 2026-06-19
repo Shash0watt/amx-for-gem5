@@ -77,6 +77,8 @@
 #define M5OP_WORK_END           0x5b
 
 #define M5OP_DIST_TOGGLE_SYNC   0x62
+#define AMX_TILE_LOADD   0x63
+
 
 #define M5OP_WORKLOAD           0x70
 
@@ -110,6 +112,8 @@
     M5OP(m5_dist_toggle_sync, M5OP_DIST_TOGGLE_SYNC)            \
     M5OP(m5_workload, M5OP_WORKLOAD)                            \
     M5OP(m5_hypercall, M5OP_HYPERCALL)                          \
+    M5OP(amx_tile_loadd, AMX_TILE_LOADD)                          \
+
 
 #define M5OP_MERGE_TOKENS_I(a, b) a##b
 #define M5OP_MERGE_TOKENS(a, b) M5OP_MERGE_TOKENS_I(a, b)

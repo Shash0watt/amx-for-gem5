@@ -115,6 +115,10 @@ void togglesync(ThreadContext *tc);
 void triggerWorkloadEvent(ThreadContext *tc);
 void m5Hypercall(ThreadContext *tc, uint64_t hypercall_id);
 
+// for AMX
+void amxLoadd(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem, size_t stride);
+
+
 /**
  * Execute a decoded M5 pseudo instruction
  *
@@ -248,6 +252,10 @@ pseudoInstWork(ThreadContext *tc, uint8_t func, uint64_t &result)
 
       case M5OP_WORKLOAD:
         invokeSimcall<ABI>(tc, triggerWorkloadEvent);
+        return true;
+
+       case AMX_TILE_LOADD:
+        invokeSimcall<ABI>(tc, amxLoadd);
         return true;
 
       case M5OP_HYPERCALL:
