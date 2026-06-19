@@ -1,6 +1,24 @@
-amx-for-gem5
-Research project in implementing some AMX features into gem5 for profiling matrix multiplication/LLM inference workloads
+#
+Research project implementing Intel AMX features into gem5 to profile matrix multiplication and LLM inference workloads.
 
-Usage Compile C++ using 'make' in src dir Compile changes to gem5 using 'scons build/{ISA}/gem5.{variant} -j {cpus}' in /gem5 Compile change to m5ops using 'scons build/{TARGET_ISA}/out/m5' in /gem5/util/m5
+## Usage
 
-Run sim using './path-to-gem5-build -rs amx/tb.py'
+### 1. Compile C++ Source
+
+``` bash
+cd src && make
+```
+
+### 2. Build gem5 & m5ops
+
+Run these commands from the root /gem5 directory:
+
+gem5: ` scons build/{ISA}/gem5.{variant} -j {cpus} `
+
+m5ops: ba`` scons build/{TARGET_ISA}/out/m5 ` (run from /gem5/util/m5)
+
+### 3. Run Simulation
+
+``` bash
+./path-to-gem5-build -rs amx/tb.py
+```
