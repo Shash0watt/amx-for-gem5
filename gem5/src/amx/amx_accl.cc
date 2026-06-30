@@ -42,13 +42,13 @@ void
 AmxAccl::setCPU(BaseCPU *_cpu)
 {
     cpu = _cpu;
-    DPRINTF(AMX, "AMX: Parent CPU is set to %s\n", cpu->name());
+    DPRINTF(AMX, "Parent CPU is set to %s\n", cpu->name());
 }
 
 void
 AmxAccl::handleMemResponse(PacketPtr pkt)
 {
-    DPRINTF(AMX, "AMX: handleMemResponse called for packet at paddr 0x%lx\n", pkt->getAddr());
+    DPRINTF(AMX, "handleMemResponse called for packet at paddr 0x%lx\n", pkt->getAddr());
 
     if (pkt->isError()) {
         DPRINTF(AMX, "Packet returned with an ERROR status, Destination Address was unmapped or faulty.\n");
@@ -92,9 +92,9 @@ AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem, s
     // Internal core multiplexing debug log
     if (cpu) {
         RequestPort &dcache_port = dynamic_cast<RequestPort &>(cpu->getDataPort());
-        DPRINTF(AMX, "AMX: Accessing CPU's dcache port: %s\n", dcache_port.name());
+        DPRINTF(AMX, "Accessing CPU's dcache port: %s\n", dcache_port.name());
     } else {
-        DPRINTF(AMX, "AMX: Warning: CPU pointer is null in startAmxLoad!\n");
+        DPRINTF(AMX, "Warning, CPU pointer is null in startAmxLoad!\n");
     }
 
     // 1. Align the virtual address to a standard 64-byte cache line
@@ -146,7 +146,7 @@ AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem, s
             delete pkt;
         }
     } else {
-        DPRINTF(AMX, "AMX: CPU pointer not set, dropping packet\n");
+        DPRINTF(AMX, "CPU pointer not set, dropping packet\n");
         delete pkt;
     }
 }

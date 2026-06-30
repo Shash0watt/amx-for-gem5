@@ -1147,10 +1147,15 @@ TimingSimpleCPU::DcachePort::recvTimingResp(PacketPtr pkt)
     // response packets return through the CPU's primary data port and must be intercepted
     // and routed back to the accelerator if they contain the AmxSenderState token.
     if (pkt->senderState) {
+        DPRINTF(AMX, "Received load/store response with a sender state! %#x\n", pkt->getAddr());
         auto amx_state = dynamic_cast<AmxAccl::AmxSenderState *>(pkt->senderState);
         if (amx_state) {
+            DPRINTF(AMX, "Received load/store response that had an AMX sender state");
+
             if (cpu->getAmxAccl()) {
+                DPRINTF(AMX, "Asking AMX unit to handle mem response");
                 cpu->getAmxAccl()->handleMemResponse(pkt);
+                
             } else {
                 delete pkt;
             }
