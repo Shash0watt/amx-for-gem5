@@ -25,7 +25,7 @@ cd util/m5 && scons build/x86/out/m5
 ### 3. Run Simulation
 
 ``` bash
-./build/X86/gem5.opt -rs amx-workloads/ltb.py
+./build/X86/gem5.opt -rs configs/amx/tb.py
 ```
 
 
@@ -33,7 +33,7 @@ cd util/m5 && scons build/x86/out/m5
 
 - for linting
 ``` bash
-scons build/X86/gem5.opt CCFL                       AGS="-fsyntax-only"
+scons build/X86/gem5.opt CCFLAGS="-fsyntax-only"
 ```
 
 - see users server

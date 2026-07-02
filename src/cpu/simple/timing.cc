@@ -1158,11 +1158,9 @@ TimingSimpleCPU::DcachePort::recvTimingResp(PacketPtr pkt)
             if (cpu->getAmxAccl()) {
                 DPRINTF(AMX, "Asking AMX unit to handle mem response");
                 cpu->getAmxAccl()->handleMemResponse(pkt);
-                
-            } else {
-                delete pkt;
-            }
-            return true;
+                return true;
+            } 
+            
         }
     }
 

@@ -2,19 +2,20 @@
 
 #include <cstdio>
 #include <iostream>
-#include <memory>
-#include <string>
+#include <memory> 
+#include <string> 
 
 #include "arch/generic/mmu.hh"
 #include "base/trace.hh"
 #include "cpu/base.hh"
 #include "debug/AMX.hh"
-#include "params/AmxAccl.hh"
+#include "mem/port.hh"       
+// #include "params/AmxAccl.hh"
 
 namespace gem5
 {
 
-AmxAccl::AmxAccl(const Params &params)
+AmxAccl::AmxAccl(const AmxAcclParams &params)
     : ClockedObject(params), cpu(nullptr), currentCfg{}
 {
     // initialize tiles array to zero
@@ -23,8 +24,6 @@ AmxAccl::AmxAccl(const Params &params)
     }
 
     // set up default configuration values
-    // // for debugging and so that we don't need the tile config instruction
-    // right now
     currentCfg.palette_id = 1;
     currentCfg.start_row = 0;
 
@@ -101,58 +100,76 @@ void
 AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
                       std::size_t stride)
 {
-    DPRINTF(AMX, "received amxload. dest: %llu, src: %llu, stride: %lu\n",
-            dest_tile, src_mem, stride);
+    // error checking
+    // make sure there are no out of bound accesses
+    panic_if(dest_tile >= NUM_TILES,
+             "AMX: Target tile %llu exceeds max tiles!", dest_tile);
 
-    // stop early if there is no cpu pointer to avoid crashes or wasting
-    // resources
+    uint16_t num_rows = currentCfg.rows[dest_tile];
+    uint16_t row_bytes = currentCfg.colsb[dest_tile];
+
+    DPRINTF(AMX,
+            "Executing amxload for Tile %llu (%d rows, %d bytes/row), Base "
+            "Src: 0x%llx, Stride: %lu\n",
+            dest_tile, num_rows, row_bytes, src_mem, stride);
+
+    // make sure we have the right ptr
     if (!cpu) {
-        DPRINTF(AMX, "warning: cpu pointer is null in startAmxLoad! dropping "
-                     "request.\n");
+        DPRINTF(AMX, "Warning the CPU is not attached / ptr is NULL\n");
         return;
     }
 
-    // get the cache port once and reuse it to avoid multiple dynamic casts
+    // get the cpu's dcache port
     auto &dcache_port = dynamic_cast<RequestPort &>(cpu->getDataPort());
-    DPRINTF(AMX, "accessing cpu dcache port: %s\n", dcache_port.name());
+    constexpr int CACHE_LINE_SIZE = 64; // Assuming 64-byte row width for now
 
-    // align the memory address to a standard 64-byte cache line
-    constexpr int CACHE_LINE_SIZE = 64;
-    uint64_t aligned_src_mem = src_mem & ~(CACHE_LINE_SIZE - 1);
+    // loop through each row in the tile
+    for (uint8_t r = 0; r < num_rows; ++r) {
+        // get the vaddr
+        uint64_t row_vaddr = src_mem + (r * stride);
 
-    // build the memory request object
-    RequestPtr req =
-        std::make_shared<Request>(aligned_src_mem, CACHE_LINE_SIZE, 0,
-                                  tc->getCpuPtr()->dataRequestorId(),
-                                  tc->pcState().instAddr(), tc->contextId());
+        // make sure it's alligned to the cache line
+        uint64_t aligned_row_vaddr = row_vaddr & ~(CACHE_LINE_SIZE - 1);
 
-    // translate the virtual memory address to a physical address using the mmu
-    Fault fault = tc->getMMUPtr()->translateFunctional(req, tc, BaseMMU::Read);
+        // make the request
+        RequestPtr req = std::make_shared<Request>(
+            aligned_row_vaddr, CACHE_LINE_SIZE, 0,
+            tc->getCpuPtr()->dataRequestorId(), tc->pcState().instAddr(),
+            tc->contextId());
 
-    // stop if the address translation fails
-    if (fault != NoFault) {
-        DPRINTF(AMX, "translation failed for virtual address 0x%lx\n",
-                src_mem);
-        return;
-    }
+        // get the virtual to physical address
+        Fault fault =
+            tc->getMMUPtr()->translateFunctional(req, tc, BaseMMU::Read);
+        if (fault != NoFault) {
+            DPRINTF(AMX,
+                    "Translation fault for Tile %llu, Row %d at Vaddr 0x%lx\n",
+                    dest_tile, r, row_vaddr);
+            // Stop dispatching if translation fails
+            break;
+        }
 
-    // allocate a new memory packet and attach tracking state to it
-    PacketPtr pkt = new Packet(req, MemCmd::ReadReq);
-    pkt->allocate();
-    pkt->pushSenderState(new AmxSenderState(dest_tile, 0));
+        // create the packet
+        PacketPtr pkt = new Packet(req, MemCmd::ReadReq);
+        pkt->allocate(); // if the packet will carry data
 
-    // try to send the packet through the cache port
-    if (dcache_port.sendTimingReq(pkt)) {
-        DPRINTF(AMX,
-                "timing read request successfully sent for physical address "
-                "0x%lx\n",
-                req->getPaddr());
-    } else {
-        DPRINTF(AMX, "cpu dcache port rejected the timing request because it "
-                     "is busy\n");
-        // clean up the packet immediately if it was rejected
-        delete pkt->popSenderState();
-        delete pkt;
+        // add the sender state information
+        pkt->pushSenderState(new AmxSenderState(dest_tile, r));
+
+        // Send the the packet to the CPU's memory port, make sure we do error
+        // handling
+        if (dcache_port.sendTimingReq(pkt)) {
+            DPRINTF(AMX, "Dispatched row %d read request. Paddr: 0x%lx\n", r,
+                    req->getPaddr());
+        } else {
+            // NOTE: If the L1 cache queue is full, it rejects the packet.
+            DPRINTF(AMX, "Port structural hazard! L1 Cache rejected row %d.\n",
+                    r);
+
+            // clean up the rejected packet to avoid memory leaks
+            delete pkt->popSenderState();
+            delete pkt;
+            // TODO: implement retry qeue... for now we just delete the packet
+        }
     }
 }
 
