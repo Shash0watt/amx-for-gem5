@@ -44,55 +44,6 @@ AmxAccl::setCPU(BaseCPU *_cpu)
 }
 
 void
-AmxAccl::handleMemResponse(PacketPtr pkt)
-{
-    DPRINTF(AMX, "amx: handleMemResponse called for packet at paddr 0x%lx\n",
-            pkt->getAddr());
-
-    // inline lambda function to delete packets without repeating code
-    auto dropPacket = [](PacketPtr p) {
-        if (p->senderState) {
-            delete p->popSenderState();
-        }
-        delete p;
-    };
-
-    // check if the memory request failed
-    if (pkt->isError()) {
-        DPRINTF(AMX, "packet returned with an error status\n");
-        dropPacket(pkt);
-        return;
-    }
-
-    // check if the packet is empty
-    if (!pkt->hasData()) {
-        DPRINTF(AMX, "packet arrived safely but contains no data payload\n");
-        dropPacket(pkt);
-        return;
-    }
-
-    // extract and verify the tracking state from the packet
-    auto *state = dynamic_cast<AmxSenderState *>(pkt->popSenderState());
-    panic_if(
-        !state,
-        "amx response packet arrived missing its tracking senderstate token!");
-
-    // convert raw packet bytes into a readable int8 string for debugging
-    auto *data_ptr = reinterpret_cast<int8_t *>(pkt->getPtr<uint8_t>());
-    std::string int8_output;
-    for (int i = 0; i < pkt->getSize(); i++) {
-        int8_output += std::to_string(data_ptr[i]) + " ";
-    }
-
-    DPRINTF(AMX, "data loaded into matrix (as int8): [ %s]\n",
-            int8_output.c_str());
-
-    // clean up allocated memory
-    delete state;
-    delete pkt;
-}
-
-void
 AmxAccl::startup()
 { DPRINTF(AMX, "amx object startup completed\n"); }
 
@@ -172,5 +123,56 @@ AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
         }
     }
 }
+
+
+void
+AmxAccl::handleMemResponse(PacketPtr pkt)
+{
+    DPRINTF(AMX, "amx: handleMemResponse called for packet at paddr 0x%lx\n",
+            pkt->getAddr());
+
+    // inline lambda function to delete packets without repeating code
+    auto dropPacket = [](PacketPtr p) {
+        if (p->senderState) {
+            delete p->popSenderState();
+        }
+        delete p;
+    };
+
+    // check if the memory request failed
+    if (pkt->isError()) {
+        DPRINTF(AMX, "packet returned with an error status\n");
+        dropPacket(pkt);
+        return;
+    }
+
+    // check if the packet is empty
+    if (!pkt->hasData()) {
+        DPRINTF(AMX, "packet arrived safely but contains no data payload\n");
+        dropPacket(pkt);
+        return;
+    }
+
+    // extract and verify the tracking state from the packet
+    auto *state = dynamic_cast<AmxSenderState *>(pkt->popSenderState());
+    panic_if(
+        !state,
+        "amx response packet arrived missing its tracking senderstate token!");
+
+    // convert raw packet bytes into a readable int8 string for debugging
+    auto *data_ptr = reinterpret_cast<int8_t *>(pkt->getPtr<uint8_t>());
+    std::string int8_output;
+    for (int i = 0; i < pkt->getSize(); i++) {
+        int8_output += std::to_string(data_ptr[i]) + " ";
+    }
+
+    DPRINTF(AMX, "data loaded into matrix (as int8): [ %s]\n",
+            int8_output.c_str());
+
+    // clean up allocated memory
+    delete state;
+    delete pkt;
+}
+
 
 } // namespace gem5
