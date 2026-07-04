@@ -76,11 +76,13 @@ AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
 
     // loop through each row in the tile
     for (uint8_t r = 0; r < num_rows; ++r) {
+        bool done = (r==num_rows-1);
         // get the vaddr
         uint64_t row_vaddr = src_mem + (r * stride);
 
         // make sure it's alligned to the cache line
         uint64_t aligned_row_vaddr = row_vaddr & ~(CACHE_LINE_SIZE - 1);
+        uint8_t offset = row_vaddr & (CACHE_LINE_SIZE - 1);
 
         // make the request
         RequestPtr req = std::make_shared<Request>(
@@ -104,7 +106,7 @@ AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
         pkt->allocate(); // if the packet will carry data
 
         // add the sender state information
-        pkt->pushSenderState(new AmxSenderState(dest_tile, r));
+        pkt->pushSenderState(new AmxSenderState(dest_tile, r, offset, done));
 
         // Send the the packet to the CPU's memory port, make sure we do error
         // handling
@@ -153,26 +155,85 @@ AmxAccl::handleMemResponse(PacketPtr pkt)
         return;
     }
 
-    // extract and verify the tracking state from the packet
+    // get the sender state and the information from it
     auto *state = dynamic_cast<AmxSenderState *>(pkt->popSenderState());
     panic_if(
         !state,
         "amx response packet arrived missing its tracking senderstate token!");
 
-    // convert raw packet bytes into a readable int8 string for debugging
-    auto *data_ptr = reinterpret_cast<int8_t *>(pkt->getPtr<uint8_t>());
-    std::string int8_output;
-    for (int i = 0; i < pkt->getSize(); i++) {
-        int8_output += std::to_string(data_ptr[i]) + " ";
-    }
+    uint8_t tile = state->destTile;
+    uint8_t row = state->rowIdx;
+    uint8_t offset = state->offset;
+    bool done = state->done;
 
-    DPRINTF(AMX, "data loaded into matrix (as int8): [ %s]\n",
-            int8_output.c_str());
+    const uint8_t *payload_start = pkt->getConstPtr<uint8_t>() + offset;
+
+    // error checking for the information
+    panic_if(tile >= NUM_TILES, "AMX: Returned tile index %d out of bounds!", tile);
+    panic_if(row >= MAX_ROWS, "AMX: Returned row index %d out of bounds!", row);
+    
+    // how many bytes are left after we extract the packet
+    size_t available_bytes = pkt->getSize() - offset;
+
+    size_t requested_bytes = currentCfg.colsb[tile];
+    size_t copy_size = std::min(available_bytes, requested_bytes);
+
+    // write data using the shifted pointer
+    std::memcpy(tiles[tile].data[row], payload_start, copy_size);
+
+    DPRINTF(AMX, "Loaded %zu bytes into Tile %d, Row %d (Offset: %d)\n", 
+            copy_size, tile, row, offset);
+    
+    // DPRINTF(AMX, "woof");
+    if(done) {
+        // DPRINTF(AMX, "meow");
+        printTile(tile);
+    }
 
     // clean up allocated memory
     delete state;
     delete pkt;
 }
+
+void
+AmxAccl::printInt8Tile(uint8_t tile_idx)
+{
+    panic_if(tile_idx >= NUM_TILES, "AMX Printer: Tile index %d out of bounds!", tile_idx);
+
+    uint16_t active_rows = currentCfg.rows[tile_idx];
+    uint16_t active_cols = currentCfg.colsb[tile_idx];
+
+    std::stringstream ss;
+    ss << "\n+========================================================================+\n";
+    ss << "  AMX REGISTER STATE: [ TMM" << (int)tile_idx << " ] \n";
+    ss << "  Layout Dimensions : " << active_rows << " Active Rows x " << active_cols << " Column Bytes\n";
+    ss << "+========================================================================+\n";
+
+    for (uint8_t r = 0; r < active_rows; ++r) {
+        // row Labels
+        ss << " Row [" << std::setw(2) << std::setfill('0') << std::dec << (int)r << "]: ";
+
+        for (uint16_t c = 0; c < active_cols; ++c) {
+            // read matrix register value
+            int8_t val = tiles[tile_idx].data[r][c];
+            ss << std::setw(4) << std::setfill(' ') << std::dec << (int)val << " ";
+            if ((c + 1) % 4 == 0 && (c + 1) < active_cols) {
+                ss << "| ";
+            }
+        }
+        ss << "\n";
+    }
+    ss << "+========================================================================+";
+
+    // Output dumped directly to the gem5 trace pipe
+    DPRINTF(AMX, "%s\n", ss.str().c_str());
+}
+
+
+// when starting AMX multiplication, when can we actually start?
+// becuase the rows arrive out of order
+
+// also what if data is not aligned to the cache line, what was the way that AMX does it
 
 
 } // namespace gem5

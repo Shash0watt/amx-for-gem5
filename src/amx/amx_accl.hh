@@ -25,8 +25,10 @@ class AmxAccl : public ClockedObject
     {
         uint8_t destTile;
         uint8_t rowIdx;
-        AmxSenderState(uint8_t dest, uint8_t row) :
-            destTile(dest), rowIdx(row) {}
+        uint8_t offset;
+        bool done;
+        AmxSenderState(uint8_t dest, uint8_t row, uint8_t offset, bool done) :
+            destTile(dest), rowIdx(row), offset(offset), done(done) {}
     };
 
     static constexpr int MAX_ROWS = 16;
@@ -68,6 +70,8 @@ class AmxAccl : public ClockedObject
 
     // Handles memory responses routed from the CPU. Replaces AmxMemPort::recvTimingResp.
     void handleMemResponse(PacketPtr pkt);
+
+    void printInt8Tile(uint8_t tile_idx);
 };
 
 } // namespace gem5

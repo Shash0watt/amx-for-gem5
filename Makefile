@@ -1,4 +1,4 @@
-GEM5_PATH = gem5
+GEM5_PATH = .
 ISA = x86
 
 # Compilers
@@ -9,7 +9,7 @@ CXX = g++
 INCLUDES = -I$(GEM5_PATH)/include
 LDFLAGS = -L$(GEM5_PATH)/util/m5/build/$(ISA)/out -lm5
 
-TARGET = amx-workloads/load_test
+TARGET = configs/amx/load_test
 
 all: $(TARGET)
 
