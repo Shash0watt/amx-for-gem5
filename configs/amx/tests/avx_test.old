@@ -1,0 +1,89 @@
+#include <stdio.h>
+#include <unistd.h>
+#include <immintrin.h> // required for __m256d and avx functions
+
+#include <gem5/m5ops.h> // for annotation in gem5
+
+// compile by running 'make' in terminal
+
+uint32_t get_float_bits(float f) {
+    union {
+        float f;
+        uint32_t i;
+    } converter;
+    
+    converter.f = f;
+    return converter.i;
+}
+
+int main(void) {
+    
+    // 1. setup input data (four 64-bit doubles = 256 bits)
+    float test_float0 = 3.14f;
+    float test_float1 = 3.14f;
+    uint32_t test_data0 = get_float_bits(test_float0);
+    uint32_t test_data1 = get_float_bits(test_float1);
+
+    // 2. load data into AVX types (using m5ops, and eventually actually)
+    m5_work_begin(0,0);
+    // note: this will use xmm0 and xmm1 to emulate ymm0
+    m5_avx_load(2,test_data0); // now is amx tile load (make a new file for this)
+    // note: this will use xmm2 and xmm3 to emulate ymm1
+    m5_avx_load(4,test_data1);
+
+    // 3. inline assembly
+    /* creating raw bytes for: vaddps %ymm4, %ymm2, %ymm0 // ymm2 + ymm4 = ymm0
+     byte breakdown of (vex encoding):
+
+     * 0xC5 - 2-byte vex prefix
+
+     [r][vvvv][l][pp]
+        - if r == 0: add 8 to destination register (ymm0 means r=1)
+        - vvvv is the inverted src1 register number. 
+          ymm2 is 0010 -> bitwise inverted -> 1101
+        - if l = 1 then ymm regs else xmm regs
+        - pp / precision
+            00, usually ps (packed single, multiple 32-bit floats)
+            01, usually pd (packed double, multiple 64-bit floats)
+            10, usually ss (scalar single, only using the first 32-bits) 
+            11, usually sd (scalar double, only using the first 64-bits)
+
+     1 (r) | 1101 (vvvv=ymm2) | 1 (l)  | 00 (pp=ps)
+     * 0xEC - payload byte (1110 1100)
+
+     * 0x58 - addps opcode
+
+     [mode (2 bits)] [reg (3 bits)] [reg/mem (3 bits)]
+      11 (accs regs)| 000 (ymm 0)  | 100 (ymm 4) => 11 000 100
+     * 0xC4 - modr/m byte 
+
+     */
+
+     // note: the gem5 decoder is hardcoded to blindly strip vex prefixes and fall 
+     // back to whatever legacy opcode happens to share the same base byte.
+     // ie this add will become 0xEC, 0x58, 0xC4 
+     // (fake fix implemented in gem5!)
+    asm volatile(
+        ".byte 0xC5, 0xEC, 0x58, 0xC4\n" // ymm0 = ymm2 + ymm4 (vaddps)
+    );
+
+    // 4. store the result back to memory (using sse)
+    // since ymm0 is just xmm0 and xmm1
+    float result[8] = {0};
+
+    asm volatile (
+        "movups %%xmm0, %0\n" // extract lower 128 bits (4 floats)
+        "movups %%xmm1, %1\n" // extract upper 128 bits (4 floats)
+        : "=m" (result[0]), "=m" (result[4])
+        : // no inputs
+        : "memory"
+    );
+
+    m5_work_end(0,0);
+
+    // 5. print the results
+    printf("--- AVX VADDPS RESULT (YMM0) ---\n");
+    printf("Lower 128-bits (xmm0): %f, %f, %f, %f\n", result[0], result[1], result[2], result[3]);
+    printf("Upper 128-bits (xmm1): %f, %f, %f, %f\n", result[4], result[5], result[6], result[7]);
+    return 0;
+}

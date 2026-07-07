@@ -28,7 +28,9 @@ $ ./gem5.debug -rs amx/tb.py
 """
 
 # Define the path to your compiled test binary containing the custom instructions
-binary_path = Path("configs/amx/load_test")
+# binary_path = Path("configs/amx/binaries/load_test")
+binary_path = Path("configs/amx/binaries/ooo_test")
+
 
 # Setup Cache and Memory
 cache_hierarchy = PrivateL1CacheHierarchy(
@@ -71,7 +73,7 @@ board.set_se_binary_workload(
 
 
 def workbegin_handler():
-    print("\n--- Start of AMX isnstruction ---\n")
+    print("\n--- Start of AMX ROI ---\n")
 
     # Enable ExecAll here to trace instructions ONLY in your region of interest
     # This prevents the terminal from being flooded with standard C-library setup instructions.
@@ -84,7 +86,7 @@ def workbegin_handler():
 
 
 def workend_handler():
-    print("\n--- End of AMX instruction ---\n")
+    print("\n--- End of AMX ROI ---\n")
 
     # Disable tracing once the work is done
     # m5.debug.flags["ExecAll"].disable()

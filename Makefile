@@ -1,25 +1,30 @@
 GEM5_PATH = .
 ISA = x86
 
-# Compilers
+# compilers
 CC = gcc
 CXX = g++
 
-# Compiler and Linker Flags
+# compiler and linker flags
 INCLUDES = -I$(GEM5_PATH)/include
 LDFLAGS = -L$(GEM5_PATH)/util/m5/build/$(ISA)/out -lm5
 
-TARGET = configs/amx/load_test
+# source files and targets
+SRCS_CPP = $(wildcard configs/amx/tests/*.cpp)
 
-all: $(TARGET)
+TARGETS = $(patsubst configs/amx/tests/%.cpp,configs/amx/binaries/%,$(SRCS_CPP))
 
-# Pattern rule to compile C++ files
-%: %.cpp
+all: $(TARGETS)
+
+# pattern rule to compile c++ files
+configs/amx/binaries/%: configs/amx/tests/%.cpp
+	@mkdir -p configs/amx/binaries
 	$(CXX) -o $@ $< $(INCLUDES) $(LDFLAGS)
 
-# Pattern rule to compile C files
-%: %.c
+# pattern rule to compile c files
+configs/amx/binaries/%: configs/amx/tests/%.c
+	@mkdir -p configs/amx/binaries
 	$(CC) -o $@ $< $(INCLUDES) $(LDFLAGS)
 
 clean:
-	rm -f $(TARGET)
+	rm -rf configs/amx/binaries

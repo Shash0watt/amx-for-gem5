@@ -11,7 +11,7 @@ main(int argc, char *argv[])
     uint64_t dest_tile = 0;
     size_t stride = 64;
 
-    // TESTING VARIABLES:
+    // testing variables:
     // change this to change the offset
     int offset = 60;
 
