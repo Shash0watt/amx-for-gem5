@@ -33,6 +33,7 @@
 extern "C" {
 #endif
 
+#include <stddef.h> // for size_t
 #include <stdint.h>
 
 #include <gem5/asm/generic/m5ops.h>
@@ -48,8 +49,8 @@ void m5_wake_cpu(uint64_t cpuid);
 void m5_exit(uint64_t ns_delay);
 void m5_fail(uint64_t ns_delay, uint64_t code);
 // m5_sum is for sanity checking the gem5 op interface.
-unsigned m5_sum(unsigned a, unsigned b, unsigned c,
-                unsigned d, unsigned e, unsigned f);
+unsigned m5_sum(unsigned a, unsigned b, unsigned c, unsigned d, unsigned e,
+                unsigned f);
 uint64_t m5_init_param(uint64_t key_str1, uint64_t key_str2);
 void m5_checkpoint(uint64_t ns_delay, uint64_t ns_period);
 void m5_reset_stats(uint64_t ns_delay, uint64_t ns_period);
@@ -67,7 +68,7 @@ void m5_panic(void);
 void m5_work_begin(uint64_t workid, uint64_t threadid);
 void m5_work_end(uint64_t workid, uint64_t threadid);
 void m5_hypercall(uint64_t hypercall_id);
-void amx_tile_loadd(uint64_t dest_tile, uint64_t src_mem, size_t stride);
+void amx_tile_loadd(uint64_t dest_tile, const void *src_mem, size_t stride);
 
 /*
  * Send a very generic poke to the workload so it can do something. It's up to
@@ -86,8 +87,9 @@ void m5_workload();
  * does not have _semi, but we felt that ifdefing them out could cause more
  * trouble tham leaving them in.
  */
-#define M5OP(name, func) __typeof__(name) M5OP_MERGE_TOKENS(name, _addr); \
-                         __typeof__(name) M5OP_MERGE_TOKENS(name, _semi);
+#define M5OP(name, func)                                                      \
+    __typeof__(name) M5OP_MERGE_TOKENS(name, _addr);                          \
+    __typeof__(name) M5OP_MERGE_TOKENS(name, _semi);
 M5OP_FOREACH
 #undef M5OP
 

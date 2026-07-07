@@ -11,6 +11,7 @@ main(int argc, char *argv[])
     uint64_t dest_tile = 0;
     size_t stride = 64;
 
+    // TESTING VARIABLES:
     // change this to change the offset
     int offset = 60;
 
@@ -29,12 +30,9 @@ main(int argc, char *argv[])
         }
     }
 
-    // get the exact memory address pointer of the array block as a int64..
-    uint64_t src_mem = reinterpret_cast<uint64_t>(&matrix[0][0]);
-
     m5_work_begin(0, 0);
 
-    amx_tile_loadd(dest_tile, src_mem, stride);
+    amx_tile_loadd(dest_tile, &matrix[0][0], stride);
 
     m5_work_end(0, 0);
 
