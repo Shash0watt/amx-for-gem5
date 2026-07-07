@@ -97,6 +97,7 @@ void startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
 void handleMemResponse(PacketPtr pkt);
 
 void printInt8Tile(uint8_t tile_idx);
+void printInt32Tile(uint8_t tile_idx);
 };
 
 } // namespace gem5

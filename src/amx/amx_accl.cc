@@ -213,7 +213,7 @@ AmxAccl::handleMemResponse(PacketPtr pkt)
 
     // check if done
     if (tileOutstandingRequests[tile] == 0) {
-        printInt8Tile(tile);
+        printInt32Tile(tile);
     }
 
     // clean up allocated memory
@@ -225,7 +225,7 @@ void
 AmxAccl::printInt8Tile(uint8_t tile_idx)
 {
     panic_if(tile_idx >= NUM_TILES,
-             "AMX Printer: Tile index %d out of bounds!", tile_idx);
+             "AMX printer: tile index %d out of bounds!", tile_idx);
 
     uint16_t active_rows = currentCfg.rows[tile_idx];
     uint16_t active_cols = currentCfg.colsb[tile_idx];
@@ -240,7 +240,7 @@ AmxAccl::printInt8Tile(uint8_t tile_idx)
           "======+\n";
 
     for (uint8_t r = 0; r < active_rows; ++r) {
-        // row Labels
+        // row labels
         ss << " Row [" << std::setw(2) << std::setfill('0') << std::dec
            << (int)r << "]: ";
 
@@ -258,7 +258,52 @@ AmxAccl::printInt8Tile(uint8_t tile_idx)
     ss << "+=================================================================="
           "======+";
 
-    // Output dumped directly to the gem5 trace pipe
+    // output dumped directly to the gem5 trace pipe
+    DPRINTF(AMX, "%s\n", ss.str().c_str());
+}
+
+void
+AmxAccl::printInt32Tile(uint8_t tile_idx)
+{
+    panic_if(tile_idx >= NUM_TILES,
+             "AMX printer: tile index %d out of bounds!", tile_idx);
+
+    uint16_t active_rows = currentCfg.rows[tile_idx];
+    uint16_t active_cols_bytes = currentCfg.colsb[tile_idx];
+    uint16_t active_cols_32 = active_cols_bytes / 4;
+
+    std::stringstream ss;
+    ss << "\n+================================================================"
+          "========+\n";
+    ss << "  AMX REGISTER STATE: [ TMM" << (int)tile_idx << " ] \n";
+    ss << "  Layout Dimensions : " << active_rows << " Active Rows x "
+       << active_cols_32 << " Column Int32s\n";
+    ss << "+=================================================================="
+          "======+\n";
+
+    for (uint8_t r = 0; r < active_rows; ++r) {
+        // row labels
+        ss << " Row [" << std::setw(2) << std::setfill('0') << std::dec
+           << (int)r << "]: ";
+
+        // cast the row data pointer to int32_t*
+        const int32_t *row_data = reinterpret_cast<const int32_t*>(tiles[tile_idx].data[r]);
+
+        for (uint16_t c = 0; c < active_cols_32; ++c) {
+            // read matrix register value
+            int32_t val = row_data[c];
+            ss << std::setw(8) << std::setfill(' ') << std::dec << val
+               << " ";
+            if ((c + 1) % 4 == 0 && (c + 1) < active_cols_32) {
+                ss << "| ";
+            }
+        }
+        ss << "\n";
+    }
+    ss << "+=================================================================="
+          "======+";
+
+    // output dumped directly to the gem5 trace pipe
     DPRINTF(AMX, "%s\n", ss.str().c_str());
 }
 
