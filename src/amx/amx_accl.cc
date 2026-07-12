@@ -51,104 +51,150 @@ void
 AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
                       std::size_t stride)
 {
-    // error checking
-    // make sure there are no out of bound accesses
-    panic_if(dest_tile >= NUM_TILES,
-             "AMX: Target tile %llu exceeds max tiles!", dest_tile);
+    // create a AmxInst object
+    AmxInst load_inst = AmxInst(AMX_LOAD, dest_tile, -1, -1, src_mem, stride);
 
-    uint16_t num_rows = currentCfg.rows[dest_tile];
-    uint16_t row_bytes = currentCfg.colsb[dest_tile];
+    // add it to the queue
+    instructionQueue.push_back(load_inst);
 
-    DPRINTF(AMX,
-            "Executing amxload for Tile %llu (%d rows, %d bytes/row), Base "
-            "Src: 0x%llx, Stride: %lu\n",
-            dest_tile, num_rows, row_bytes, src_mem, stride);
-
-    // make sure we have the right ptr
-    if (!cpu) {
-        DPRINTF(AMX, "Warning the CPU is not attached / ptr is NULL\n");
-        return;
-    }
-
-    // get the cpu's dcache port
-    auto &dcache_port = dynamic_cast<RequestPort &>(cpu->getDataPort());
-    constexpr int CACHE_LINE_SIZE = 64; // Assuming 64-byte row width for now
-
-    // reset the counter tracking for the tile's loads
-    tileOutstandingRequests[dest_tile] = 0;
-
-    // loop through each row in the tile
-    for (uint8_t r = 0; r < num_rows; ++r) {
-        // get the vaddr
-        uint64_t row_vaddr = src_mem + (r * stride);
-
-        size_t bytes_remaining = row_bytes;
-        uint16_t current_row_offset = 0;
-        uint64_t current_vaddr = row_vaddr;
-
-        while (bytes_remaining > 0) {
-            // make sure it's alligned to the cache line
-            uint64_t aligned_row_vaddr =
-                current_vaddr & ~(CACHE_LINE_SIZE - 1);
-            uint8_t offset = current_vaddr & (CACHE_LINE_SIZE - 1);
-
-            // calculate bytes available in the current cache line block
-            size_t bytes_in_line = CACHE_LINE_SIZE - offset;
-            size_t chunk_size = std::min(bytes_remaining, bytes_in_line);
-
-            // make the request
-            RequestPtr req = std::make_shared<Request>(
-                aligned_row_vaddr, CACHE_LINE_SIZE, 0,
-                tc->getCpuPtr()->dataRequestorId(), tc->pcState().instAddr(),
-                tc->contextId());
-
-            // get the virtual to physical address
-            Fault fault =
-                tc->getMMUPtr()->translateFunctional(req, tc, BaseMMU::Read);
-            if (fault != NoFault) {
-                DPRINTF(
-                    AMX,
-                    "Translation fault for Tile %llu, Row %d at Vaddr 0x%lx\n",
-                    dest_tile, r, current_vaddr);
-                // Stop dispatching if translation fails
-                break;
-            }
-
-            // create the packet
-            PacketPtr pkt = new Packet(req, MemCmd::ReadReq);
-            pkt->allocate(); // if the packet will carry data
-
-            // add the sender state information
-            pkt->pushSenderState(new AmxSenderState(
-                dest_tile, r, offset, current_row_offset, chunk_size));
-
-            // Send the the packet to the CPU's memory port, make sure we do
-            // error handling
-            if (dcache_port.sendTimingReq(pkt)) {
-                DPRINTF(AMX,
-                        "Dispatched row %d split read request. Paddr: 0x%lx\n",
-                        r, req->getPaddr());
-                // increment total requests expected back for this tile load
-                tileOutstandingRequests[dest_tile]++;
-            } else {
-                // NOTE: If the L1 cache queue is full, it rejects the packet.
-                DPRINTF(AMX,
-                        "Port structural hazard! L1 Cache rejected row %d.\n",
-                        r);
-
-                // clean up the rejected packet to avoid memory leaks
-                delete pkt->popSenderState();
-                delete pkt;
-                // TODO: implement retry qeue... for now we just delete the
-                // packet
-            }
-
-            bytes_remaining -= chunk_size;
-            current_row_offset += chunk_size;
-            current_vaddr += chunk_size;
-        }
-    }
+    // try to issue the object
+    tryIssue();
 }
+
+void
+tryIssue()
+{
+    DPRINTF(AMX, "I really tried. I-I did!");
+
+    // get the first instrution
+    AmxInst &first_inst = instructionQueue.front();
+
+    // execute it
+    
+
+    // pop it from queue
+    instructionQueue.pop_front();
+
+    // -- stuff to help me understand --
+    // Look at the first instruction: AmxInst& first =
+    // instructionQueue.front();
+
+    // Remove the first instruction (once finished):
+    // instructionQueue.pop_front();
+
+    // Get the size: instructionQueue.size();
+
+    // Iterate through the queue (for tryIssue):
+    // for (auto& inst : instructionQueue) {
+    //     // Check hazards for 'inst'
+    // }
+}
+
+// void
+// AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t
+// src_mem,
+//                       std::size_t stride)
+// {
+//     // error checking
+//     // make sure there are no out of bound accesses
+//     panic_if(dest_tile >= NUM_TILES,
+//              "AMX: Target tile %llu exceeds max tiles!", dest_tile);
+
+//     uint16_t num_rows = currentCfg.rows[dest_tile];
+//     uint16_t row_bytes = currentCfg.colsb[dest_tile];
+
+//     DPRINTF(AMX,
+//             "Executing amxload for Tile %llu (%d rows, %d bytes/row), Base "
+//             "Src: 0x%llx, Stride: %lu\n",
+//             dest_tile, num_rows, row_bytes, src_mem, stride);
+
+//     // make sure we have the right ptr
+//     if (!cpu) {
+//         DPRINTF(AMX, "Warning the CPU is not attached / ptr is NULL\n");
+//         return;
+//     }
+
+//     // get the cpu's dcache port
+//     auto &dcache_port = dynamic_cast<RequestPort &>(cpu->getDataPort());
+//     constexpr int CACHE_LINE_SIZE = 64; // Assuming 64-byte row width for
+//     now
+
+//     // reset the counter tracking for the tile's loads
+//     tileOutstandingRequests[dest_tile] = 0;
+
+//     // loop through each row in the tile
+//     for (uint8_t r = 0; r < num_rows; ++r) {
+//         // get the vaddr
+//         uint64_t row_vaddr = src_mem + (r * stride);
+
+//         size_t bytes_remaining = row_bytes;
+//         uint16_t current_row_offset = 0;
+//         uint64_t current_vaddr = row_vaddr;
+
+//         while (bytes_remaining > 0) {
+//             // make sure it's alligned to the cache line
+//             uint64_t aligned_row_vaddr =
+//                 current_vaddr & ~(CACHE_LINE_SIZE - 1);
+//             uint8_t offset = current_vaddr & (CACHE_LINE_SIZE - 1);
+
+//             // calculate bytes available in the current cache line block
+//             size_t bytes_in_line = CACHE_LINE_SIZE - offset;
+//             size_t chunk_size = std::min(bytes_remaining, bytes_in_line);
+
+//             // make the request
+//             RequestPtr req = std::make_shared<Request>(
+//                 aligned_row_vaddr, CACHE_LINE_SIZE, 0,
+//                 tc->getCpuPtr()->dataRequestorId(),
+//                 tc->pcState().instAddr(), tc->contextId());
+
+//             // get the virtual to physical address
+//             Fault fault =
+//                 tc->getMMUPtr()->translateFunctional(req, tc,
+//                 BaseMMU::Read);
+//             if (fault != NoFault) {
+//                 DPRINTF(
+//                     AMX,
+//                     "Translation fault for Tile %llu, Row %d at Vaddr
+//                     0x%lx\n", dest_tile, r, current_vaddr);
+//                 // Stop dispatching if translation fails
+//                 break;
+//             }
+
+//             // create the packet
+//             PacketPtr pkt = new Packet(req, MemCmd::ReadReq);
+//             pkt->allocate(); // if the packet will carry data
+
+//             // add the sender state information
+//             pkt->pushSenderState(new AmxSenderState(
+//                 dest_tile, r, offset, current_row_offset, chunk_size));
+
+//             // Send the the packet to the CPU's memory port, make sure we do
+//             // error handling
+//             if (dcache_port.sendTimingReq(pkt)) {
+//                 DPRINTF(AMX,
+//                         "Dispatched row %d split read request. Paddr:
+//                         0x%lx\n", r, req->getPaddr());
+//                 // increment total requests expected back for this tile load
+//                 tileOutstandingRequests[dest_tile]++;
+//             } else {
+//                 // NOTE: If the L1 cache queue is full, it rejects the
+//                 packet. DPRINTF(AMX,
+//                         "Port structural hazard! L1 Cache rejected row
+//                         %d.\n", r);
+
+//                 // clean up the rejected packet to avoid memory leaks
+//                 delete pkt->popSenderState();
+//                 delete pkt;
+//                 // TODO: implement retry qeue... for now we just delete the
+//                 // packet
+//             }
+
+//             bytes_remaining -= chunk_size;
+//             current_row_offset += chunk_size;
+//             current_vaddr += chunk_size;
+//         }
+//     }
+// }
 
 void
 AmxAccl::handleMemResponse(PacketPtr pkt)
@@ -287,13 +333,13 @@ AmxAccl::printInt32Tile(uint8_t tile_idx)
            << (int)r << "]: ";
 
         // cast the row data pointer to int32_t*
-        const int32_t *row_data = reinterpret_cast<const int32_t*>(tiles[tile_idx].data[r]);
+        const int32_t *row_data =
+            reinterpret_cast<const int32_t *>(tiles[tile_idx].data[r]);
 
         for (uint16_t c = 0; c < active_cols_32; ++c) {
             // read matrix register value
             int32_t val = row_data[c];
-            ss << std::setw(8) << std::setfill(' ') << std::dec << val
-               << " ";
+            ss << std::setw(8) << std::setfill(' ') << std::dec << val << " ";
             if ((c + 1) % 4 == 0 && (c + 1) < active_cols_32) {
                 ss << "| ";
             }

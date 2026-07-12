@@ -11,6 +11,8 @@
 // #include "mem/port.hh"    // Required for RequestPort definition
 #include "mem/packet.hh" // Required for PacketPtr usage
 
+#include <deque>
+
 namespace gem5
 {
 
@@ -43,61 +45,113 @@ class AmxAccl : public ClockedObject
         {}
     };
 
+    enum class AmxOpcode
+    {
+        AMX_LOAD,
+        AMX_COMPUTE,
+        AMX_STORE
+    };
 
-static constexpr int MAX_ROWS = 16;
-static constexpr int MAX_COLS_BYTES = 64;
-static constexpr int NUM_TILES = 8;
+    struct AmxInst
+    {
+        AmxOpcode opcode; // the "type" tag
+        uint8_t destTile; // destination tile index (0-7)
+        uint8_t srcTile1; // Source tile 1
+        uint8_t srcTile2; // Source tile 2 (for when we are computing values)
 
-struct TileCfg
-{
-    uint8_t palette_id;
-    uint8_t start_row;
-    uint8_t reserved_0[14];
-    uint16_t colsb[16];
-    uint8_t rows[16];
-};
+        uint64_t addr; // memory address (for loads/stores)
+        size_t stride; // and also the stride
 
-struct TileReg
-{
-    uint16_t rows;
-    uint16_t colbytes;
-    int8_t data[MAX_ROWS][MAX_COLS_BYTES];
-};
+        uint32_t outstandingRequests; // the conuter for memory responses
 
-private:
-// Pointer to the parent CPU. In core multiplexing, we access the cache
-// pipeline directly through the CPU's data port, removing the need for a
-// separate RequestPort.
-BaseCPU *cpu;
+        // state tracking for the scheduler
+        enum class State
+        {
+            PENDING,
+            EXECUTING,
+            COMPLETED
+        } state;
 
-// internal registers for AMX. Moved from the deprecated AmxMemPort.
-TileCfg currentCfg;       // Global config state register
-TileReg tiles[NUM_TILES]; // Matrix register file (TMM0 - TMM7)
+        // amx inst constructor
+        AmxInst(AmxOpcode op, uint8_t dest, uint8_t t1, uint8_t t2,
+                uint64_t addr = 0, uint32_t stride = 0)
+            : opcode(op),
+              destTile(dest),
+              srcTile1(t1),
+              srcTile2(t2),
+              addr(addr),
+              stride(stride),
+              outstandingRequests(0),
+              state(State::PENDING)
+        {}
+    };
 
-// keeps track of exactly how many sub-requests remain outstanding for each
-// tile. when tileOutstandingRequests[tile_idx] reaches 0, the tile load is
-// complete.
-size_t tileOutstandingRequests[NUM_TILES];
+    static constexpr int MAX_ROWS = 16;
+    static constexpr int MAX_COLS_BYTES = 64;
+    static constexpr int NUM_TILES = 8;
 
-public:
-AmxAccl(const AmxAcclParams &p);
-void startup() override;
+    struct TileCfg
+    {
+        uint8_t palette_id;
+        uint8_t start_row;
+        uint8_t reserved_0[14];
+        uint16_t colsb[16];
+        uint8_t rows[16];
+    };
 
-// Sets the parent CPU reference for accessing its memory ports.
-void setCPU(BaseCPU *_cpu);
-BaseCPU *
-getCPU() const
-{ return cpu; }
+    struct TileReg
+    {
+        uint16_t rows;
+        uint16_t colbytes;
+        int8_t data[MAX_ROWS][MAX_COLS_BYTES];
+    };
 
-void startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
-                  uint64_t stride);
+  private:
+    // Pointer to the parent CPU. In core multiplexing, we access the cache
+    // pipeline directly through the CPU's data port, removing the need for a
+    // separate RequestPort.
+    BaseCPU *cpu;
 
-// Handles memory responses routed from the CPU. Replaces
-// AmxMemPort::recvTimingResp.
-void handleMemResponse(PacketPtr pkt);
+    // internal registers for AMX. Moved from the deprecated AmxMemPort.
+    TileCfg currentCfg;       // Global config state register
+    TileReg tiles[NUM_TILES]; // Matrix register file (TMM0 - TMM7)
 
-void printInt8Tile(uint8_t tile_idx);
-void printInt32Tile(uint8_t tile_idx);
+    // keeps track of exactly how many sub-requests remain outstanding for each
+    // tile. when tileOutstandingRequests[tile_idx] reaches 0, the tile load is
+    // complete.
+    size_t tileOutstandingRequests[NUM_TILES]; // TODO: replace this with the
+                                               // AmxInst object
+
+    // for out of order logic
+    std::deque<AmxInst> instructionQueue;
+    struct ScoreBoardEntry
+    {
+        int readerCount = 0;
+        bool writeActive = false;
+    };
+    ScoreboardEntry tileScoreboard[NUM_TILES];
+
+  public:
+    AmxAccl(const AmxAcclParams &p);
+    void startup() override;
+
+    // Sets the parent CPU reference for accessing its memory ports.
+    void setCPU(BaseCPU *_cpu);
+    BaseCPU *
+    getCPU() const
+    { return cpu; }
+
+    void startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
+                      uint64_t stride);
+
+    void tryIssue();
+
+    // Handles memory responses routed from the CPU. Replaces
+    // AmxMemPort::recvTimingResp.
+    void handleMemResponse(PacketPtr pkt);
+
+    void printInt8Tile(uint8_t tile_idx);
+    void printInt32Tile(uint8_t tile_idx);
 };
 
 } // namespace gem5
