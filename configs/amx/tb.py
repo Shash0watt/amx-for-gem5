@@ -43,8 +43,8 @@ memory = SingleChannelDDR4_2400("1GiB")
 # Setup the processor
 # (CPUTypes.ATOMIC is faster for purely functional tests, but TIMING is better if you need cycle counts)
 processor = SimpleProcessor(
-    cpu_type=CPUTypes.TIMING,  # in order proc
-    # cpu_type=CPUTypes.O3, config for Out of Order
+    # cpu_type=CPUTypes.TIMING,  # in order proc
+    cpu_type=CPUTypes.O3,  # config for Out of Order
     num_cores=1,
     isa=ISA.X86,
 )
