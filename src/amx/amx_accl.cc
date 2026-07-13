@@ -33,24 +33,27 @@ AmxAccl::AmxAccl(const AmxAcclParams &params)
         currentCfg.colsb[i] = MAX_COLS_BYTES;
     }
 
-    DPRINTF(AMX, "created the amx object\n");
+    DPRINTF(AMX, "Created the AMX SimObject\n");
 }
 
 void
 AmxAccl::setCPU(BaseCPU *_cpu)
 {
     cpu = _cpu;
-    DPRINTF(AMX, "parent cpu is set to %s\n", cpu->name());
+    DPRINTF(AMX, "The AMX accelerator is connected to parent CPU: %s\n",
+            cpu->name());
 }
 
 void
 AmxAccl::startup()
-{ DPRINTF(AMX, "amx object startup completed\n"); }
+{ DPRINTF(AMX, "AMX object started up\n"); }
 
 void
 AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
                       uint64_t stride)
 {
+    DPRINTF(AMX, "Adding a LOAD for Tile %d to queue\n");
+
     // generate a unique ID
     uint64_t id = nextInstId++;
 
@@ -68,11 +71,11 @@ AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
 void
 AmxAccl::tryIssue()
 {
-    DPRINTF(AMX, "starting issue of next valid load\n");
+    DPRINTF(AMX, "Queue: Finding next issuable instruction \n");
 
     // make sure there is an instruction to process
     if (instructionQueue.empty()) {
-        DPRINTF(AMX, "instruction queue is empty, nothing to issue\n");
+        DPRINTF(AMX, "Queue: Instruction queue is empty, nothing to issue\n");
         return;
     }
 
@@ -216,7 +219,7 @@ AmxAccl::tryIssue()
 
     // make sure that we can actually execute an instructio
     if (ready_inst != nullptr) {
-        DPRINTF(AMX, "Found an instruction to exectue");
+        DPRINTF(AMX, "Queue: Found an instruction to exectue");
         // make sure that accesses are not out of bounds
         panic_if(ready_inst->destTile >= NUM_TILES,
                  "AMX: Target tile %d exceeds max tiles!",
@@ -224,7 +227,7 @@ AmxAccl::tryIssue()
 
         // make sure that we have a CPU attached
         if (!cpu) {
-            DPRINTF(AMX, "Warning: CPU is not attached / ptr is NULL\n");
+            DPRINTF(AMX, "Queue: Warning CPU is not attached / ptr is NULL\n");
             return;
         }
 
@@ -235,12 +238,12 @@ AmxAccl::tryIssue()
         // execute it based on opcode
         switch (ready_inst->opcode) {
             case AmxOpcode::AMX_LOAD:
-                DPRINTF(
-                    AMX,
-                    "Executing amxload for Tile %d (%d rows, %d bytes/row), "
-                    "Base Src: 0x%lx, Stride: %lu\n",
-                    ready_inst->destTile, num_rows, row_bytes,
-                    ready_inst->addr, ready_inst->stride);
+                DPRINTF(AMX,
+                        "Queue: Executing amxload for Tile %d (%d rows, %d "
+                        "bytes/row), "
+                        "Base Src: 0x%lx, Stride: %lu\n",
+                        ready_inst->destTile, num_rows, row_bytes,
+                        ready_inst->addr, ready_inst->stride);
 
                 // update the scoreboard
                 tileScoreboard[ready_inst->destTile].writeActive = true;
@@ -324,10 +327,11 @@ AmxAccl::tryIssue()
                                 // rejects the packet.
                                 // TODO: retry failed requests (how will we go
                                 // about this?)
-                                DPRINTF(AMX,
-                                        "Port structural hazard! L1 Cache "
-                                        "rejected row %d.\n",
-                                        r);
+                                DPRINTF(
+                                    AMX,
+                                    "Queue: Port structural hazard! L1 Cache "
+                                    "rejected row %d.\n",
+                                    r);
 
                                 // clean up the rejected packet to avoid memory
                                 // leaks
@@ -360,7 +364,7 @@ AmxAccl::tryIssue()
                 break;
 
             case AmxOpcode::AMX_COMPUTE:
-                DPRINTF(AMX, "Executing AMX compute operation\n");
+                DPRINTF(AMX, "Queue: Executing AMX compute operation\n");
 
                 // update the scoreboarjd
                 tileScoreboard[ready_inst->destTile].writeActive = true;
@@ -381,7 +385,7 @@ AmxAccl::tryIssue()
                 break;
 
             case AmxOpcode::AMX_STORE:
-                DPRINTF(AMX, "Executing AMX store operation \n");
+                DPRINTF(AMX, "Queue: Executing AMX store operation \n");
 
                 // update the scoreboard
                 if (ready_inst->srcTile1 != -1) {
@@ -395,7 +399,7 @@ AmxAccl::tryIssue()
                 panic("called unknown opcode");
         }
     } else {
-        DPRINTF(AMX, "No ready instruction in queue");
+        DPRINTF(AMX, "Queue: No issuable instruction found");
     }
 }
 
@@ -449,8 +453,8 @@ AmxAccl::handleMemResponse(PacketPtr pkt)
     // write data using the shifted pointer
     std::memcpy(&tiles[tile].data[row][row_offset], payload_start, copy_size);
 
-    DPRINTF(AMX, "Loaded %zu bytes into Tile %d, Row %d (Offset: %d)\n",
-            copy_size, tile, row, offset);
+    DPRINTF(AMX, "Loaded %u bytes into Tile %d, Row %d (Offset: %d)\n",
+            (unsigned)copy_size, tile, row, offset);
 
     // find the corresponding instruction in the instructionQueue
     AmxInst *inst = nullptr;
