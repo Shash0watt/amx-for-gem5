@@ -27,6 +27,7 @@ class AmxAccl : public ClockedObject
     // to
     struct AmxSenderState : public Packet::SenderState
     {
+        uint64_t instId;     // unique id of instruction that generated request
         uint8_t destTile;    // Target TMM tile register (0-7)
         uint8_t rowIdx;      // Which matrix row this fragment belongs to
         uint8_t cacheOffset; // Where the data starts within the returned 64B
@@ -35,9 +36,10 @@ class AmxAccl : public ClockedObject
                              // internal tile matrix row
         size_t bytesToCopy;  // The explicit number of bytes to extract from
                              // this specific sub-packet
-        AmxSenderState(uint8_t dest, uint8_t row, uint8_t c_offset,
+        AmxSenderState(uint64_t inst_id, uint8_t dest, uint8_t row, uint8_t c_offset,
                        uint16_t r_offset, size_t bytes)
-            : destTile(dest),
+            : instId(inst_id),
+              destTile(dest),
               rowIdx(row),
               cacheOffset(c_offset),
               rowOffset(r_offset),
@@ -54,6 +56,7 @@ class AmxAccl : public ClockedObject
 
     struct AmxInst
     {
+        uint64_t instId;  // unique ID for instruction tracking
         AmxOpcode opcode; // the "type" tag
         uint8_t destTile; // destination tile index (0-7)
         uint8_t srcTile1; // Source tile 1
@@ -63,6 +66,7 @@ class AmxAccl : public ClockedObject
         size_t stride; // and also the stride
 
         uint32_t outstandingRequests; // the conuter for memory responses
+        ThreadContext *tc;            // pointer to thread context
 
         // state tracking for the scheduler
         enum class State
@@ -73,15 +77,17 @@ class AmxAccl : public ClockedObject
         } state;
 
         // amx inst constructor
-        AmxInst(AmxOpcode op, uint8_t dest, uint8_t t1, uint8_t t2,
-                uint64_t addr = 0, uint32_t stride = 0)
-            : opcode(op),
+        AmxInst(uint64_t id, AmxOpcode op, uint8_t dest, uint8_t t1, uint8_t t2,
+                uint64_t addr = 0, uint32_t stride = 0, ThreadContext *_tc = nullptr)
+            : instId(id),
+              opcode(op),
               destTile(dest),
               srcTile1(t1),
               srcTile2(t2),
               addr(addr),
               stride(stride),
               outstandingRequests(0),
+              tc(_tc),
               state(State::PENDING)
         {}
     };
@@ -129,7 +135,8 @@ class AmxAccl : public ClockedObject
         int readerCount = 0;
         bool writeActive = false;
     };
-    ScoreboardEntry tileScoreboard[NUM_TILES];
+    ScoreBoardEntry tileScoreboard[NUM_TILES];
+    uint64_t nextInstId = 0; // counter to assign unique ids
 
   public:
     AmxAccl(const AmxAcclParams &p);

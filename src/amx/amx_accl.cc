@@ -49,10 +49,14 @@ AmxAccl::startup()
 
 void
 AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
-                      std::size_t stride)
+                      uint64_t stride)
 {
+    // generate a unique ID
+    uint64_t id = nextInstId++;
+
     // create a AmxInst object
-    AmxInst load_inst = AmxInst(AMX_LOAD, dest_tile, -1, -1, src_mem, stride);
+    AmxInst load_inst = AmxInst(id, AmxOpcode::AMX_LOAD, dest_tile, -1, -1,
+                                src_mem, stride, tc);
 
     // add it to the queue
     instructionQueue.push_back(load_inst);
@@ -62,144 +66,343 @@ AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
 }
 
 void
-tryIssue()
+AmxAccl::tryIssue()
 {
-    DPRINTF(AMX, "I really tried. I-I did!");
+    DPRINTF(AMX, "starting issue of next valid load\n");
 
-    // get the first instrution
-    AmxInst &first_inst = instructionQueue.front();
+    // make sure there is an instruction to process
+    if (instructionQueue.empty()) {
+        DPRINTF(AMX, "instruction queue is empty, nothing to issue\n");
+        return;
+    }
 
-    // execute it
-    
+    AmxInst *ready_inst = nullptr;
+    // all instructions in the queue
+    for (auto it = instructionQueue.begin(); it != instructionQueue.end();
+         ++it) {
+        AmxInst &inst = *it;
+        if (inst.state != AmxInst::State::PENDING) {
+            continue;
+        }
+        bool has_hazard = false;
+        // check with scoreboard
+        // check that a tile is valid
 
-    // pop it from queue
-    instructionQueue.pop_front();
+        // read after write
+        // I am doing a EXEC but my src1 and src2 or dest is being written to
+        // I am doing a STR but my src is being written to.
+        if (inst.opcode == AmxOpcode::AMX_COMPUTE) {
+            if ((inst.srcTile1 != -1 &&
+                 tileScoreboard[inst.srcTile1].writeActive) ||
+                (inst.srcTile2 != -1 &&
+                 tileScoreboard[inst.srcTile2].writeActive) ||
+                (inst.destTile != -1 &&
+                 tileScoreboard[inst.destTile].writeActive)) {
+                has_hazard = true;
+            }
+        } else if (inst.opcode == AmxOpcode::AMX_STORE) {
+            if (inst.srcTile1 != -1 &&
+                tileScoreboard[inst.srcTile1].writeActive) {
+                has_hazard = true;
+            }
+        }
 
-    // -- stuff to help me understand --
-    // Look at the first instruction: AmxInst& first =
-    // instructionQueue.front();
+        // write after write
+        // I am doing a LOAD into a tile dest which is being written to
+        // I am doing a EXEC and writing the result to a tile still being
+        // written to does a store cause a WAW in gem5?
+        if (inst.opcode == AmxOpcode::AMX_LOAD ||
+            inst.opcode == AmxOpcode::AMX_COMPUTE) {
+            if (inst.destTile != -1 &&
+                tileScoreboard[inst.destTile].writeActive) {
+                has_hazard = true;
+            }
+        }
 
-    // Remove the first instruction (once finished):
-    // instructionQueue.pop_front();
+        // write after read
+        // I am doing a EXEC but a STR or other EXEC is reading it's dest, src1
+        // or src2 I amd doing a LOAD but a STR's src or a EXEC's dest1, src1
+        // or src2 is beign read from
+        if (inst.opcode == AmxOpcode::AMX_LOAD ||
+            inst.opcode == AmxOpcode::AMX_COMPUTE) {
+            if (inst.destTile != -1 &&
+                tileScoreboard[inst.destTile].readerCount > 0) {
+                has_hazard = true;
+            }
+        }
 
-    // Get the size: instructionQueue.size();
+        // check with previous pending instructions
+        if (has_hazard == false) {
+            // all instructions located before the current one (it/inst)
+            for (auto prior_it = instructionQueue.begin(); prior_it != it;
+                 ++prior_it) {
+                AmxInst &prior = *prior_it;
 
-    // Iterate through the queue (for tryIssue):
-    // for (auto& inst : instructionQueue) {
-    //     // Check hazards for 'inst'
-    // }
+                // skip checking against completed instructions
+                if (prior.state == AmxInst::State::COMPLETED) {
+                    continue;
+                }
+
+                // RAW
+                if (inst.opcode == AmxOpcode::AMX_COMPUTE) {
+                    if (prior.opcode == AmxOpcode::AMX_LOAD ||
+                        prior.opcode == AmxOpcode::AMX_COMPUTE) {
+                        if ((prior.destTile != -1 &&
+                             prior.destTile == inst.srcTile1) ||
+                            (prior.destTile != -1 &&
+                             prior.destTile == inst.srcTile2) ||
+                            (prior.destTile != -1 &&
+                             prior.destTile == inst.destTile)) {
+                            has_hazard = true;
+                            break;
+                        }
+                    }
+                } else if (inst.opcode == AmxOpcode::AMX_STORE) {
+                    if (prior.opcode == AmxOpcode::AMX_LOAD ||
+                        prior.opcode == AmxOpcode::AMX_COMPUTE) {
+                        if (prior.destTile != -1 &&
+                            prior.destTile == inst.srcTile1) {
+                            has_hazard = true;
+                            break;
+                        }
+                    }
+                }
+
+                // WAWA
+                if (inst.opcode == AmxOpcode::AMX_LOAD ||
+                    inst.opcode == AmxOpcode::AMX_COMPUTE) {
+                    if (prior.opcode == AmxOpcode::AMX_LOAD ||
+                        prior.opcode == AmxOpcode::AMX_COMPUTE) {
+                        if (prior.destTile != -1 &&
+                            prior.destTile == inst.destTile) {
+                            has_hazard = true;
+                            break;
+                        }
+                    }
+                }
+
+                // WAR
+                if (inst.opcode == AmxOpcode::AMX_LOAD ||
+                    inst.opcode == AmxOpcode::AMX_COMPUTE) {
+                    if (prior.opcode == AmxOpcode::AMX_COMPUTE) {
+                        if ((prior.srcTile1 != -1 &&
+                             prior.srcTile1 == inst.destTile) ||
+                            (prior.srcTile2 != -1 &&
+                             prior.srcTile2 == inst.destTile) ||
+                            (prior.destTile != -1 &&
+                             prior.destTile == inst.destTile)) {
+                            has_hazard = true;
+                            break;
+                        }
+                    } else if (prior.opcode == AmxOpcode::AMX_STORE) {
+                        if (prior.srcTile1 != -1 &&
+                            prior.srcTile1 == inst.destTile) {
+                            has_hazard = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!has_hazard) {
+            ready_inst = &inst;
+            break; // we found a valid instruction!
+        }
+    }
+
+    // check for hazards with already executing instructions
+    // check for hazards with preceeding instructions in the queue
+
+    // make sure that we can actually execute an instructio
+    if (ready_inst != nullptr) {
+        DPRINTF(AMX, "Found an instruction to exectue");
+        // make sure that accesses are not out of bounds
+        panic_if(ready_inst->destTile >= NUM_TILES,
+                 "AMX: Target tile %d exceeds max tiles!",
+                 ready_inst->destTile);
+
+        // make sure that we have a CPU attached
+        if (!cpu) {
+            DPRINTF(AMX, "Warning: CPU is not attached / ptr is NULL\n");
+            return;
+        }
+
+        // get information about the tile from the config
+        uint16_t num_rows = currentCfg.rows[ready_inst->destTile];
+        uint16_t row_bytes = currentCfg.colsb[ready_inst->destTile];
+
+        // execute it based on opcode
+        switch (ready_inst->opcode) {
+            case AmxOpcode::AMX_LOAD:
+                DPRINTF(
+                    AMX,
+                    "Executing amxload for Tile %d (%d rows, %d bytes/row), "
+                    "Base Src: 0x%lx, Stride: %lu\n",
+                    ready_inst->destTile, num_rows, row_bytes,
+                    ready_inst->addr, ready_inst->stride);
+
+                // update the scoreboard
+                tileScoreboard[ready_inst->destTile].writeActive = true;
+
+                {
+                    // get the cpu's dcache port
+                    auto &dcache_port =
+                        dynamic_cast<RequestPort &>(cpu->getDataPort());
+                    constexpr int CACHE_LINE_SIZE = 64;
+
+                    // set the scoreboard information
+                    ready_inst->outstandingRequests = 0;
+                    ready_inst->state = AmxInst::State::EXECUTING;
+
+                    // loop through each row in the tile
+                    for (uint8_t r = 0; r < num_rows; ++r) {
+                        // get the vaddr
+                        uint64_t row_vaddr =
+                            ready_inst->addr + (r * ready_inst->stride);
+
+                        size_t bytes_remaining = row_bytes;
+                        uint16_t current_row_offset = 0;
+                        uint64_t current_vaddr = row_vaddr;
+
+                        while (bytes_remaining > 0) {
+                            // make sure it's alligned to the cache line
+                            uint64_t aligned_row_vaddr =
+                                current_vaddr & ~(CACHE_LINE_SIZE - 1);
+                            uint8_t offset =
+                                current_vaddr & (CACHE_LINE_SIZE - 1);
+
+                            // calculate bytes available in the current cache
+                            // line block
+                            size_t bytes_in_line = CACHE_LINE_SIZE - offset;
+                            size_t chunk_size =
+                                std::min(bytes_remaining, bytes_in_line);
+
+                            // make the request
+                            RequestPtr req = std::make_shared<Request>(
+                                aligned_row_vaddr, CACHE_LINE_SIZE, 0,
+                                ready_inst->tc->getCpuPtr()->dataRequestorId(),
+                                ready_inst->tc->pcState().instAddr(),
+                                ready_inst->tc->contextId());
+
+                            // get the virtual to physical address
+                            // TODO: make this actually a timing request
+                            Fault fault =
+                                ready_inst->tc->getMMUPtr()
+                                    ->translateFunctional(req, ready_inst->tc,
+                                                          BaseMMU::Read);
+                            if (fault != NoFault) {
+                                DPRINTF(AMX,
+                                        "Translation fault for Tile %d, Row "
+                                        "%d at Vaddr 0x%lx\n",
+                                        ready_inst->destTile, r,
+                                        current_vaddr);
+                                // Stop dispatching if translation fails
+                                break;
+                            }
+
+                            // create the packet
+                            PacketPtr pkt = new Packet(req, MemCmd::ReadReq);
+                            pkt->allocate(); // if the packet will carry data
+
+                            // add the sender state information
+                            pkt->pushSenderState(new AmxSenderState(
+                                ready_inst->instId, ready_inst->destTile, r,
+                                offset, current_row_offset, chunk_size));
+
+                            // Send the packet to the CPU's memory port
+                            if (dcache_port.sendTimingReq(pkt)) {
+                                DPRINTF(AMX,
+                                        "Dispatched row %d split read "
+                                        "request. Paddr: 0x%lx\n",
+                                        r, req->getPaddr());
+                                // increment total requests expected back for
+                                // this tile load
+                                ready_inst->outstandingRequests++;
+                            } else {
+                                // If the L1 cache queue is full, it
+                                // rejects the packet.
+                                // TODO: retry failed requests (how will we go
+                                // about this?)
+                                DPRINTF(AMX,
+                                        "Port structural hazard! L1 Cache "
+                                        "rejected row %d.\n",
+                                        r);
+
+                                // clean up the rejected packet to avoid memory
+                                // leaks
+                                delete pkt->popSenderState();
+                                delete pkt;
+                            }
+
+                            bytes_remaining -= chunk_size;
+                            current_row_offset += chunk_size;
+                            current_vaddr += chunk_size;
+                        }
+                    }
+
+                    // cleanup if the instruction never issues because of queue
+                    // being full or transalation failing etc
+                    if (ready_inst->outstandingRequests == 0) {
+                        ready_inst->state = AmxInst::State::COMPLETED;
+                        tileScoreboard[ready_inst->destTile].writeActive =
+                            false;
+                        for (auto it = instructionQueue.begin();
+                             it != instructionQueue.end(); ++it) {
+                            if (it->instId == ready_inst->instId) {
+                                instructionQueue.erase(it);
+                                break;
+                            }
+                        }
+                        tryIssue();
+                    }
+                }
+                break;
+
+            case AmxOpcode::AMX_COMPUTE:
+                DPRINTF(AMX, "Executing AMX compute operation\n");
+
+                // update the scoreboarjd
+                tileScoreboard[ready_inst->destTile].writeActive = true;
+                if (ready_inst->srcTile1 != -1) {
+                    tileScoreboard[ready_inst->srcTile1].readerCount++;
+                }
+                if (ready_inst->destTile != -1) {
+                    tileScoreboard[ready_inst->destTile].readerCount++;
+                }
+                if (ready_inst->srcTile2 != -1) {
+                    tileScoreboard[ready_inst->srcTile2].readerCount++;
+                }
+
+                // TODO: we don't actually do matrix multiplication yet, to be
+                // implemented
+                // TODO: then after that we can accuratley model the delay for
+                // the execution by stalling or sumn
+                break;
+
+            case AmxOpcode::AMX_STORE:
+                DPRINTF(AMX, "Executing AMX store operation \n");
+
+                // update the scoreboard
+                if (ready_inst->srcTile1 != -1) {
+                    tileScoreboard[ready_inst->srcTile1].readerCount++;
+                }
+
+                // TODO: implement store logic
+                break;
+
+            default:
+                panic("called unknown opcode");
+        }
+    } else {
+        DPRINTF(AMX, "No ready instruction in queue");
+    }
 }
-
-// void
-// AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t
-// src_mem,
-//                       std::size_t stride)
-// {
-//     // error checking
-//     // make sure there are no out of bound accesses
-//     panic_if(dest_tile >= NUM_TILES,
-//              "AMX: Target tile %llu exceeds max tiles!", dest_tile);
-
-//     uint16_t num_rows = currentCfg.rows[dest_tile];
-//     uint16_t row_bytes = currentCfg.colsb[dest_tile];
-
-//     DPRINTF(AMX,
-//             "Executing amxload for Tile %llu (%d rows, %d bytes/row), Base "
-//             "Src: 0x%llx, Stride: %lu\n",
-//             dest_tile, num_rows, row_bytes, src_mem, stride);
-
-//     // make sure we have the right ptr
-//     if (!cpu) {
-//         DPRINTF(AMX, "Warning the CPU is not attached / ptr is NULL\n");
-//         return;
-//     }
-
-//     // get the cpu's dcache port
-//     auto &dcache_port = dynamic_cast<RequestPort &>(cpu->getDataPort());
-//     constexpr int CACHE_LINE_SIZE = 64; // Assuming 64-byte row width for
-//     now
-
-//     // reset the counter tracking for the tile's loads
-//     tileOutstandingRequests[dest_tile] = 0;
-
-//     // loop through each row in the tile
-//     for (uint8_t r = 0; r < num_rows; ++r) {
-//         // get the vaddr
-//         uint64_t row_vaddr = src_mem + (r * stride);
-
-//         size_t bytes_remaining = row_bytes;
-//         uint16_t current_row_offset = 0;
-//         uint64_t current_vaddr = row_vaddr;
-
-//         while (bytes_remaining > 0) {
-//             // make sure it's alligned to the cache line
-//             uint64_t aligned_row_vaddr =
-//                 current_vaddr & ~(CACHE_LINE_SIZE - 1);
-//             uint8_t offset = current_vaddr & (CACHE_LINE_SIZE - 1);
-
-//             // calculate bytes available in the current cache line block
-//             size_t bytes_in_line = CACHE_LINE_SIZE - offset;
-//             size_t chunk_size = std::min(bytes_remaining, bytes_in_line);
-
-//             // make the request
-//             RequestPtr req = std::make_shared<Request>(
-//                 aligned_row_vaddr, CACHE_LINE_SIZE, 0,
-//                 tc->getCpuPtr()->dataRequestorId(),
-//                 tc->pcState().instAddr(), tc->contextId());
-
-//             // get the virtual to physical address
-//             Fault fault =
-//                 tc->getMMUPtr()->translateFunctional(req, tc,
-//                 BaseMMU::Read);
-//             if (fault != NoFault) {
-//                 DPRINTF(
-//                     AMX,
-//                     "Translation fault for Tile %llu, Row %d at Vaddr
-//                     0x%lx\n", dest_tile, r, current_vaddr);
-//                 // Stop dispatching if translation fails
-//                 break;
-//             }
-
-//             // create the packet
-//             PacketPtr pkt = new Packet(req, MemCmd::ReadReq);
-//             pkt->allocate(); // if the packet will carry data
-
-//             // add the sender state information
-//             pkt->pushSenderState(new AmxSenderState(
-//                 dest_tile, r, offset, current_row_offset, chunk_size));
-
-//             // Send the the packet to the CPU's memory port, make sure we do
-//             // error handling
-//             if (dcache_port.sendTimingReq(pkt)) {
-//                 DPRINTF(AMX,
-//                         "Dispatched row %d split read request. Paddr:
-//                         0x%lx\n", r, req->getPaddr());
-//                 // increment total requests expected back for this tile load
-//                 tileOutstandingRequests[dest_tile]++;
-//             } else {
-//                 // NOTE: If the L1 cache queue is full, it rejects the
-//                 packet. DPRINTF(AMX,
-//                         "Port structural hazard! L1 Cache rejected row
-//                         %d.\n", r);
-
-//                 // clean up the rejected packet to avoid memory leaks
-//                 delete pkt->popSenderState();
-//                 delete pkt;
-//                 // TODO: implement retry qeue... for now we just delete the
-//                 // packet
-//             }
-
-//             bytes_remaining -= chunk_size;
-//             current_row_offset += chunk_size;
-//             current_vaddr += chunk_size;
-//         }
-//     }
-// }
 
 void
 AmxAccl::handleMemResponse(PacketPtr pkt)
 {
-    DPRINTF(AMX, "amx: handleMemResponse called for packet at paddr 0x%lx\n",
+    DPRINTF(AMX, "handleMemResponse called for packet at paddr 0x%lx\n",
             pkt->getAddr());
 
     // inline lambda function to delete packets without repeating code
@@ -226,9 +429,8 @@ AmxAccl::handleMemResponse(PacketPtr pkt)
 
     // get the sender state and the information from it
     auto *state = dynamic_cast<AmxSenderState *>(pkt->popSenderState());
-    panic_if(
-        !state,
-        "amx response packet arrived missing its tracking senderstate token!");
+    panic_if(!state,
+             "amx response packet arrived missing its tracking senderstate!");
 
     uint8_t tile = state->destTile;
     uint8_t row = state->rowIdx;
@@ -237,12 +439,10 @@ AmxAccl::handleMemResponse(PacketPtr pkt)
     size_t copy_size = state->bytesToCopy;
 
     // error checking for the information
-    panic_if(tile >= NUM_TILES, "AMX: Returned tile index %d out of bounds!",
-             tile);
-    panic_if(row >= MAX_ROWS, "AMX: Returned row index %d out of bounds!",
-             row);
+    panic_if(tile >= NUM_TILES, "returned tile index %d out of bounds!", tile);
+    panic_if(row >= MAX_ROWS, "returned row index %d out of bounds!", row);
     panic_if((row_offset + copy_size) > MAX_COLS_BYTES,
-             "AMX: Target row buffer boundary overflow!");
+             "target row buffer boundary overflow!");
 
     const uint8_t *payload_start = pkt->getConstPtr<uint8_t>() + offset;
 
@@ -252,14 +452,41 @@ AmxAccl::handleMemResponse(PacketPtr pkt)
     DPRINTF(AMX, "Loaded %zu bytes into Tile %d, Row %d (Offset: %d)\n",
             copy_size, tile, row, offset);
 
-    // decrement outstanding packet tracking counter safely
-    if (tileOutstandingRequests[tile] > 0) {
-        tileOutstandingRequests[tile]--;
+    // find the corresponding instruction in the instructionQueue
+    AmxInst *inst = nullptr;
+    for (auto &queued_inst : instructionQueue) {
+        if (queued_inst.instId == state->instId) {
+            inst = &queued_inst;
+            break;
+        }
     }
 
-    // check if done
-    if (tileOutstandingRequests[tile] == 0) {
-        printInt32Tile(tile);
+    if (inst) {
+        if (inst->outstandingRequests > 0) {
+            inst->outstandingRequests--;
+        }
+
+        // check if done
+        if (inst->outstandingRequests == 0) {
+            inst->state = AmxInst::State::COMPLETED;
+
+            // relase the scoreboard write lock
+            tileScoreboard[inst->destTile].writeActive = false;
+
+            printInt32Tile(inst->destTile);
+
+            // remove the instruction from the queue
+            for (auto it = instructionQueue.begin();
+                 it != instructionQueue.end(); ++it) {
+                if (it->instId == inst->instId) {
+                    instructionQueue.erase(it);
+                    break;
+                }
+            }
+
+            // try to issue subsequent instructions
+            tryIssue();
+        }
     }
 
     // clean up allocated memory
@@ -360,3 +587,14 @@ AmxAccl::printInt32Tile(uint8_t tile_idx)
 // AMX does it
 
 } // namespace gem5
+
+// remember
+// When  AMX_LOAD completes:
+//     tileScoreboard[inst.destTile].writeActive = false;
+// When  AMX_COMPUTE completes:
+//     tileScoreboard[inst.destTile].writeActive = false;
+//     tileScoreboard[inst.srcTile1].readerCount--;
+//     tileScoreboard[inst.srcTile2].readerCount--;
+//     tileScoreboard[inst.destTile].readerCount--;
+// When  AMX_STORE completes:
+//     tileScoreboard[inst.srcTile1].readerCount--;
