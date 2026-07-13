@@ -58,9 +58,9 @@ class AmxAccl : public ClockedObject
     {
         uint64_t instId;  // unique ID for instruction tracking
         AmxOpcode opcode; // the "type" tag
-        uint8_t destTile; // destination tile index (0-7)
-        uint8_t srcTile1; // Source tile 1
-        uint8_t srcTile2; // Source tile 2 (for when we are computing values)
+        int8_t destTile;  // destination tile index (0-7)
+        int8_t srcTile1;  // Source tile 1
+        int8_t srcTile2;  // Source tile 2 (for when we are computing values)
 
         uint64_t addr; // memory address (for loads/stores)
         size_t stride; // and also the stride
@@ -77,7 +77,7 @@ class AmxAccl : public ClockedObject
         } state;
 
         // amx inst constructor
-        AmxInst(uint64_t id, AmxOpcode op, uint8_t dest, uint8_t t1, uint8_t t2,
+        AmxInst(uint64_t id, AmxOpcode op, int8_t dest, int8_t t1, int8_t t2,
                 uint64_t addr = 0, uint32_t stride = 0, ThreadContext *_tc = nullptr)
             : instId(id),
               opcode(op),
