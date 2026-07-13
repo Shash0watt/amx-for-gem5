@@ -27,9 +27,11 @@ main()
     // load array1 into tile 0
     amx_tile_loadd(0, array1, stride);
 
-    // load array2 into tile 0
-    size_t stride2 = 16 * sizeof(int32_t);
+    // load array2 into tile 0 again
     amx_tile_loadd(0, array2, stride);
+
+    // load array1 into tile 1
+    amx_tile_loadd(1, array1, stride);
 
     m5_work_end(0, 0);
 
