@@ -71,7 +71,7 @@ AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
 void
 AmxAccl::tryIssue()
 {
-    DPRINTF(AMX, "Queue: Finding next issuable instruction \n");
+    DPRINTF(AMX, "Queue: Finding next issuable instruction\n");
 
     // make sure there is an instruction to process
     if (instructionQueue.empty()) {
@@ -219,7 +219,7 @@ AmxAccl::tryIssue()
 
     // make sure that we can actually execute an instructio
     if (ready_inst != nullptr) {
-        DPRINTF(AMX, "Queue: Found an instruction to exectue");
+        DPRINTF(AMX, "Queue: Found an instruction to exectue\n");
         // make sure that accesses are not out of bounds
         panic_if(ready_inst->destTile >= NUM_TILES,
                  "AMX: Target tile %d exceeds max tiles!",
@@ -296,7 +296,7 @@ AmxAccl::tryIssue()
                                                           BaseMMU::Read);
                             if (fault != NoFault) {
                                 DPRINTF(AMX,
-                                        "Translation fault for Tile %d, Row "
+                                        "Queue: Translation fault for Tile %d, Row "
                                         "%d at Vaddr 0x%lx\n",
                                         ready_inst->destTile, r,
                                         current_vaddr);
@@ -316,7 +316,7 @@ AmxAccl::tryIssue()
                             // Send the packet to the CPU's memory port
                             if (dcache_port.sendTimingReq(pkt)) {
                                 DPRINTF(AMX,
-                                        "Dispatched row %d split read "
+                                        "Queue: Dispatched row %d split read "
                                         "request. Paddr: 0x%lx\n",
                                         r, req->getPaddr());
                                 // increment total requests expected back for
@@ -385,7 +385,7 @@ AmxAccl::tryIssue()
                 break;
 
             case AmxOpcode::AMX_STORE:
-                DPRINTF(AMX, "Queue: Executing AMX store operation \n");
+                DPRINTF(AMX, "Queue: Executing AMX store operation\n");
 
                 // update the scoreboard
                 if (ready_inst->srcTile1 != -1) {
@@ -399,7 +399,7 @@ AmxAccl::tryIssue()
                 panic("called unknown opcode");
         }
     } else {
-        DPRINTF(AMX, "Queue: No issuable instruction found");
+        DPRINTF(AMX, "Queue: No issuable instruction found\n");
     }
 }
 
