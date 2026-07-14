@@ -592,6 +592,8 @@ AmxAccl::printInt32Tile(uint8_t tile_idx)
 
 } // namespace gem5
 
+
+// TODO: get out of order working again
 // remember
 // When  AMX_LOAD completes:
 //     tileScoreboard[inst.destTile].writeActive = false;
