@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include <gem5/m5ops.h>
+#include <gem5/m5ops.h> // use our m5ops
 
 int
 main(int argc, char *argv[])

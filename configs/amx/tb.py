@@ -8,10 +8,10 @@ import m5.debug
 from m5.objects import AmxAccl
 
 from gem5.components.boards.simple_board import SimpleBoard
-from gem5.components.cachehierarchies.classic.private_l1_cache_hierarchy import (
-    PrivateL1CacheHierarchy,
+from gem5.components.cachehierarchies.classic.private_l1_private_l2_cache_hierarchy import (
+    PrivateL1PrivateL2CacheHierarchy,
 )
-from gem5.components.memory.single_channel import SingleChannelDDR4_2400
+from gem5.components.memory.single_channel import DIMM_DDR5_4400
 
 # Simulation components
 from gem5.components.processors.cpu_types import CPUTypes
@@ -33,12 +33,13 @@ binary_path = Path("configs/amx/binaries/ooo_test")
 
 
 # Setup Cache and Memory
-cache_hierarchy = PrivateL1CacheHierarchy(
-    l1d_size="64KiB",
-    l1i_size="64KiB",
+cache_hierarchy = PrivateL1PrivateL2CacheHierarchy(
+    l1d_size="48KiB",
+    l1i_size="32KiB",
+    l2_size="2MiB",
 )
 
-memory = SingleChannelDDR4_2400("1GiB")
+memory = DIMM_DDR5_4400("1GiB")
 
 # Setup the processor
 # (CPUTypes.ATOMIC is faster for purely functional tests, but TIMING is better if you need cycle counts)
@@ -63,6 +64,20 @@ board = SimpleBoard(
 # directly to the underlying BaseCPU (core.core).
 for core in processor.cores:
     core.core.amx_accl = AmxAccl()
+    
+    # comment out if not out of order
+    core.core.decodeWidth = 6
+    core.core.renameWidth = 8
+    core.core.dispatchWidth = 8
+    core.core.issueWidth = 8
+    core.core.commitWidth = 8
+
+    core.core.numROBEntries = 512
+    core.core.LQEntries = 192
+    core.core.SQEntries = 114
+
+    core.core.numPhysIntRegs = 280
+    core.core.numPhysFloatRegs = 332
 
 # Setup Workload
 board.set_se_binary_workload(
