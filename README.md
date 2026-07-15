@@ -39,17 +39,15 @@ cd util/m5 && scons build/x86/out/m5
 ./build/X86/gem5.opt -rs configs/amx/tb.py
 ```
 
-## Developer Utilities
+### Developer Utilities
 
-* **Syntax-only linting build:**
   ```bash
+  # Syntax-only linting
   scons build/X86/gem5.opt CCFLAGS="-fsyntax-only"
-  ```
-* **Check logged-in users:**
-  ```bash
+
+  # checked logged in users
   w
-  ```
-* **CPU and memory usage summary per user:**
-  ```bash
+
+  # CPU and memory usage summary per user
   ps aux | awk '{arr[$1]+=$3; arr2[$1]+=$4} END {for (i in arr) print i, "CPU%:", arr[i], "MEM%:", arr2[i]}' | sort -nk3
   ```
