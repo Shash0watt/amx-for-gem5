@@ -39,7 +39,7 @@ cd util/m5 && scons build/x86/out/m5
 ./build/X86/gem5.opt -rs configs/amx/tb.py
 ```
 
-### Developer Utilities
+## Developer Utilities
 
   ```bash
   # Syntax-only linting
