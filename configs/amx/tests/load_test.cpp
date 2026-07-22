@@ -27,7 +27,12 @@ main(int argc, char *argv[])
 
     m5_work_begin(0, 0);
 
-    // use the replacement m5op
+    // get permission from OS to use intel AMX
+
+    // load the tile
+    // _tile_loadconfig(&tile_config_struct);
+
+    // use the replacement m5op for a tile laod
     amx_tile_loadd(dest_tile, offset_matrix, stride);
 
     m5_work_end(0, 0);
