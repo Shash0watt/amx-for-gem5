@@ -3,13 +3,12 @@
 
 #include "cpu/base.hh"
 #include "cpu/thread_context.hh"
-#include "params/AmxAccl.hh"
-
-// #include "sim/sim_object.hh" // swap out since we are using a clocked object
-#include "sim/clocked_object.hh"
-
-// #include "mem/port.hh"    // Required for RequestPort definition
 #include "mem/packet.hh" // Required for PacketPtr usage
+#include "mem/packet_queue.hh"
+#include "mem/port.hh"  // Required for RequestPort definition
+#include "mem/qport.hh" // Required for using Queued Ports
+#include "params/AmxAccl.hh"
+#include "sim/clocked_object.hh"
 
 #include <deque>
 
@@ -22,6 +21,36 @@ class AmxAccl : public ClockedObject
 {
 
   public:
+    // tunable parameters for simulation:
+    int maxAmxRowLoadsPerCycle = 2; // (not connected yet)
+    int maxOutstandingCacheRequests = 16; // (not connected yet)
+    int instructionQueueCapacity = 32; // (not connected yet)
+
+    // might also need:
+    int numLoadPorts = 3; // (not connected yet)
+    int numStorePorts = 2; // (not connected yet)
+    int l1ReadBytesPerCycle = 128; // (not connected yet)
+
+    // Memory Port Class
+    class AmxRequestPort : public QueuedRequestPort
+    {
+      private:
+        AmxAccl &owner;
+        ReqPacketQueue reqQueue;
+        SnoopRespPacketQueue snoopRespQueue;
+
+      public:
+        AmxRequestPort(const std::string &name, AmxAccl &owner);
+
+      protected:
+        bool recvTimingResp(PacketPtr pkt) override;
+    };
+
+    AmxRequestPort memSidePort;
+
+    Port &getPort( // overrride to connect python & c++
+        const std::string &if_name,
+        PortID idx = InvalidPortID) override;
     // used for async port req tracking with packets
     // we use this to identify exactly which tile and row the payload belongs
     // to
@@ -68,6 +97,15 @@ class AmxAccl : public ClockedObject
         uint32_t outstandingRequests; // the conuter for memory responses
         ThreadContext *tc;            // pointer to thread context
 
+        enum class Failure
+        {
+            NONE,
+            TRANSLATION,
+            MEMORY_ERROR,
+            MISSING_DATA
+        } failure;
+        Fault fault;
+
         // state tracking for the scheduler
         enum class State
         {
@@ -88,6 +126,8 @@ class AmxAccl : public ClockedObject
               stride(stride),
               outstandingRequests(0),
               tc(_tc),
+              failure(Failure::NONE),
+              fault(NoFault),
               state(State::PENDING)
         {}
     };
@@ -112,33 +152,6 @@ class AmxAccl : public ClockedObject
         int8_t data[MAX_ROWS][MAX_COLS_BYTES];
     };
 
-  private:
-    // Pointer to the parent CPU. In core multiplexing, we access the cache
-    // pipeline directly through the CPU's data port, removing the need for a
-    // separate RequestPort.
-    BaseCPU *cpu;
-
-    // internal registers for AMX. Moved from the deprecated AmxMemPort.
-    TileCfg currentCfg;       // Global config state register
-    TileReg tiles[NUM_TILES]; // Matrix register file (TMM0 - TMM7)
-
-    // keeps track of exactly how many sub-requests remain outstanding for each
-    // tile. when tileOutstandingRequests[tile_idx] reaches 0, the tile load is
-    // complete.
-    size_t tileOutstandingRequests[NUM_TILES]; // TODO: replace this with the
-                                               // AmxInst object
-
-    // for out of order logic
-    std::deque<AmxInst> instructionQueue;
-    struct ScoreBoardEntry
-    {
-        int readerCount = 0;
-        bool writeActive = false;
-    };
-    ScoreBoardEntry tileScoreboard[NUM_TILES];
-    uint64_t nextInstId = 0; // counter to assign unique ids
-
-  public:
     AmxAccl(const AmxAcclParams &p);
     void startup() override;
 
@@ -159,6 +172,36 @@ class AmxAccl : public ClockedObject
 
     void printInt8Tile(uint8_t tile_idx);
     void printInt32Tile(uint8_t tile_idx);
+
+  private:
+    AmxInst *findReadyInstruction();
+    void executeInstruction(AmxInst *ready_inst);
+    void finishLoadInstruction(AmxInst *inst);
+
+    // Pointer to the parent CPU. In core multiplexing, we access the cache
+    // pipeline directly through the CPU's data port, removing the need for a
+    // separate RequestPort.
+    BaseCPU *cpu;
+
+    // internal registers for AMX.
+    TileCfg currentCfg;       // Global config state register
+    TileReg tiles[NUM_TILES]; // Matrix register file (TMM0 - TMM7)
+
+    // keeps track of exactly how many sub-requests remain outstanding for each
+    // tile. when tileOutstandingRequests[tile_idx] reaches 0, the tile load is
+    // complete.
+    size_t tileOutstandingRequests[NUM_TILES]; // TODO: replace this with the
+                                               // AmxInst object
+
+    // for out of order logic
+    std::deque<AmxInst> instructionQueue;
+    struct ScoreBoardEntry
+    {
+        int readerCount = 0;
+        bool writeActive = false;
+    };
+    ScoreBoardEntry tileScoreboard[NUM_TILES];
+    uint64_t nextInstId = 0; // counter to assign unique ids
 };
 
 } // namespace gem5

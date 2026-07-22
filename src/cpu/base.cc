@@ -148,6 +148,10 @@ BaseCPU::BaseCPU(const Params &p, bool is_checker)
       powerGatingOnIdle(p.power_gating_on_idle),
       enterPwrGatingEvent([this]{ enterPwrGating(); }, name())
 {
+    if (amxAccl) {
+        amxAccl->setCPU(this);
+    }
+
     // if Python did not provide a valid ID, do it here
     if (_cpuId == -1 ) {
         _cpuId = cpuList.size();

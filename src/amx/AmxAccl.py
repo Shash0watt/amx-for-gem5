@@ -8,3 +8,7 @@ class AmxAccl(ClockedObject):
     type = "AmxAccl"
     cxx_header = "amx/amx_accl.hh"
     cxx_class = "gem5::AmxAccl"
+
+    mem_side = RequestPort(
+        "AMX memory-side port for tile loads and stores"
+    )

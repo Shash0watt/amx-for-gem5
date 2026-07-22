@@ -1481,15 +1481,16 @@ LSQ::DcachePort::throttleReadResp(PacketPtr pkt)
 bool
 LSQ::DcachePort::recvTimingResp(PacketPtr pkt)
 {
-    if (pkt->senderState) {
-        auto amx_state = dynamic_cast<AmxAccl::AmxSenderState *>(pkt->senderState);
-        if (amx_state) {
-            if (cpu->getAmxAccl()) {
-                cpu->getAmxAccl()->handleMemResponse(pkt);
-                return true;
-            }
-        }
-    }
+    // old logic for OOO cpu to support forwarding using amx sender state
+    // if (pkt->senderState) {
+    //     auto amx_state = dynamic_cast<AmxAccl::AmxSenderState *>(pkt->senderState);
+    //     if (amx_state) {
+    //         if (cpu->getAmxAccl()) {
+    //             cpu->getAmxAccl()->handleMemResponse(pkt);
+    //             return true;
+    //         }
+    //     }
+    // }
 
     if (lsq->recvRespThrottling && pkt->cmd == MemCmd::ReadResp) {
         if (throttleReadResp(pkt)) {

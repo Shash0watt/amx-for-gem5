@@ -1,0 +1,1 @@
+# amx inccurs a clock frequency penalty while running
