@@ -81,7 +81,7 @@ class AmxPrivateL1PrivateL2CacheHierarchy(
 
             l1d_node = l2_node.add_child(
                 f"l1d-cache-{i}",
-                L1DCache(size=self._l1d_size),
+                L1DCache(size=self._l1d_size, assoc=12),
             )
 
             # Connect private L2 to the system memory bus.
