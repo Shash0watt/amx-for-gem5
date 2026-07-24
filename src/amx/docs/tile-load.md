@@ -14,6 +14,14 @@
 - The L1 data cache can service two 512-bit loads every cycle, and the L2 has a 64 byte per cycle link to L1
 - The L1 cache is now wider with 3 load ports instead of 2, and deeper with larger Load and Store Buffers.
 
+- 3 load capable ports (2,3, 11)
+- 2 store ports (4, 9) 
+- and also ports for addressing
+
+- AMX tile-memory operations are synchronous, coherent with CPU memory operations, and run in multi-cycle execution units,
+
+Modeling AMX as consuming at most two 64-byte tile-row loads per cycle is a reasonable Sapphire Rapids model because it matches the 128-byte-per-cycle L1D load bandwidth.
+
 
 ## Tile Load Intrinsics
 there are two tile load intrinsics
