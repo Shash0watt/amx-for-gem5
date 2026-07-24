@@ -290,7 +290,13 @@ AmxAccl::executeInstruction(AmxInst *ready_inst)
     // get information about the tile from the config
     uint16_t num_rows = currentCfg.rows[ready_inst->destTile];
     uint16_t row_bytes = currentCfg.colsb[ready_inst->destTile];
-
+    panic_if(num_rows > MAX_ROWS,
+             "AMX: Tile %d config has %u rows; maximum is %d",
+             ready_inst->destTile, num_rows, MAX_ROWS);
+    panic_if(row_bytes > MAX_COLS_BYTES,
+             "AMX: Tile %d config has %u column bytes; maximum is %d",
+             ready_inst->destTile, row_bytes, MAX_COLS_BYTES);
+    
     // execute it based on opcode
     switch (ready_inst->opcode) {
         case AmxOpcode::AMX_LOAD:
@@ -305,6 +311,14 @@ AmxAccl::executeInstruction(AmxInst *ready_inst)
             tileScoreboard[ready_inst->destTile].writeActive = true;
 
             {
+                // Clear the complete physical tile before loading its active
+                // area. Memory responses overwrite only the configured rows
+                // and column bytes, leaving every byte outside that range
+                // zero.
+                std::memset(
+                    tiles[ready_inst->destTile].data,
+                    0,
+                    sizeof(tiles[ready_inst->destTile].data));
 
                 constexpr int CACHE_LINE_SIZE = 64;
 
