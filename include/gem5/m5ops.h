@@ -69,6 +69,7 @@ void m5_work_begin(uint64_t workid, uint64_t threadid);
 void m5_work_end(uint64_t workid, uint64_t threadid);
 void m5_hypercall(uint64_t hypercall_id);
 void amx_tile_loadd(uint64_t dest_tile, const void *src_mem, size_t stride);
+void amx_tile_loadconfig(const void *mem_addr);
 
 /*
  * Send a very generic poke to the workload so it can do something. It's up to
@@ -96,4 +97,4 @@ M5OP_FOREACH
 #ifdef __cplusplus
 }
 #endif
-#endif // __GEM5_M5OP_H__
+#endif // __gem5_m5op_h__

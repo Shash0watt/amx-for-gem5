@@ -71,7 +71,7 @@
 #include "sim/stats.hh"
 #include "sim/system.hh"
 
-#include "amx/amx_accl.hh" // AMX accelerator headder
+#include "amx/amx_accl.hh" // amx accelerator header
 
 namespace gem5
 {
@@ -631,6 +631,7 @@ m5Hypercall(ThreadContext *tc, uint64_t hypercall_id)
         std::map<std::string, std::string>(), hypercall_id, true);
 }
 
+// this forwards a tile load to the attached amx unit.
 void
 amxLoadd(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
          size_t stride)
@@ -641,7 +642,21 @@ amxLoadd(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
     if (accl) {
         accl->startAmxLoad(tc, dest_tile, src_mem, stride);
     } else {
-        warn("amxLoadd executed, but no AMX Accelerator is attached!");
+        panic("amxLoadd executed without an attached AMX accelerator");
+    }
+}
+
+// this pseudo-op sends a tile configuration request to the attached amx unit.
+void
+amxLoadConfig(ThreadContext *tc, GuestAddr config_addr)
+{
+    BaseCPU *cpu = tc->getCpuPtr();
+    AmxAccl *accl = cpu->getAmxAccl();
+
+    if (accl) {
+        accl->startAmxLoadConfig(tc, config_addr.addr);
+    } else {
+        panic("amxLoadConfig executed without an attached AMX accelerator");
     }
 }
 
