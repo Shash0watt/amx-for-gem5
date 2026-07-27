@@ -15,6 +15,7 @@
 #include "debug/AMX.hh"
 #include "mem/port.hh"
 #include "sim/faults.hh"
+
 // #include "params/AmxAccl.hh"
 
 namespace gem5
@@ -81,6 +82,44 @@ AmxAccl::AmxRequestPort::recvTimingResp(PacketPtr pkt)
 {
     owner.handleMemResponse(pkt);
     return true;
+}
+
+AmxAccl::AmxTranslation::AmxTranslation(
+    AmxAccl &owner, uint64_t inst_id, uint8_t dest_tile, uint8_t row_idx,
+    uint8_t cache_offset, uint16_t row_offset, size_t bytes_to_copy)
+    : owner(owner),
+      instId(inst_id),
+      destTile(dest_tile),
+      rowIdx(row_idx),
+      cacheOffset(cache_offset),
+      rowOffset(row_offset),
+      bytesToCopy(bytes_to_copy)
+{}
+
+void
+AmxAccl::AmxTranslation::markDelayed()
+{
+    // a full-system page walk calls this when translation is delayed
+    // outstandingTranslations keeps the tile active until finish()
+    DPRINTFS(AMX, &owner,
+             "Translation delayed for instruction %llu, Tile %u, Row %u\n",
+             static_cast<unsigned long long>(instId),
+             static_cast<unsigned>(destTile), static_cast<unsigned>(rowIdx));
+}
+
+void
+AmxAccl::AmxTranslation::finish(const Fault &fault, const RequestPtr &req,
+                                ThreadContext *, BaseMMU::Mode mode)
+{
+    panic_if(mode != BaseMMU::Read,
+             "AMX load translation completed with a non-read mode");
+
+    // the amx instruction already stores the callback's thread context
+    // pass the translated request or fault to the accelerator, then delete
+    // this one-shot callback
+    owner.finishTranslation(instId, destTile, rowIdx, cacheOffset, rowOffset,
+                            bytesToCopy, fault, req);
+    delete this;
 }
 
 void
@@ -272,6 +311,20 @@ AmxAccl::findReadyInstruction()
     return ready_inst;
 }
 
+AmxAccl::AmxInst *
+AmxAccl::findInstruction(uint64_t inst_id)
+{
+    // look up callbacks by id instead of keeping a pointer into a changing
+    // instruction queue
+    for (auto &inst : instructionQueue) {
+        if (inst.instId == inst_id) {
+            return &inst;
+        }
+    }
+
+    return nullptr;
+}
+
 void
 AmxAccl::executeInstruction(AmxInst *ready_inst)
 {
@@ -296,7 +349,7 @@ AmxAccl::executeInstruction(AmxInst *ready_inst)
     panic_if(row_bytes > MAX_COLS_BYTES,
              "AMX: Tile %d config has %u column bytes; maximum is %d",
              ready_inst->destTile, row_bytes, MAX_COLS_BYTES);
-    
+
     // execute it based on opcode
     switch (ready_inst->opcode) {
         case AmxOpcode::AMX_LOAD:
@@ -322,13 +375,20 @@ AmxAccl::executeInstruction(AmxInst *ready_inst)
 
                 constexpr int CACHE_LINE_SIZE = 64;
 
-                // set the scoreboard information
+                // a tile load has two asynchronous stages:
+                //   1. translate each virtual cache-line address;
+                //   2. send each translated request to the cache.
+                // reset both counters before starting either stage
+                ready_inst->outstandingTranslations = 0;
                 ready_inst->outstandingRequests = 0;
+                ready_inst->translationDispatchComplete = false;
                 ready_inst->state = AmxInst::State::EXECUTING;
-                bool stop_dispatch = false;
 
                 // loop through each row in the tile
-                for (uint8_t r = 0; r < num_rows && !stop_dispatch; ++r) {
+                for (uint8_t r = 0;
+                     r < num_rows &&
+                     ready_inst->failure == AmxInst::Failure::NONE;
+                     ++r) {
                     // get the vaddr
                     uint64_t row_vaddr =
                         ready_inst->addr + (r * ready_inst->stride);
@@ -337,7 +397,8 @@ AmxAccl::executeInstruction(AmxInst *ready_inst)
                     uint16_t current_row_offset = 0;
                     uint64_t current_vaddr = row_vaddr;
 
-                    while (bytes_remaining > 0) {
+                    while (bytes_remaining > 0 &&
+                           ready_inst->failure == AmxInst::Failure::NONE) {
                         // make sure it's alligned to the cache line
                         uint64_t aligned_row_vaddr =
                             current_vaddr & ~(CACHE_LINE_SIZE - 1);
@@ -356,37 +417,18 @@ AmxAccl::executeInstruction(AmxInst *ready_inst)
                             ready_inst->tc->pcState().instAddr(),
                             ready_inst->tc->contextId());
 
-                        // get the virtual to physical address
-                        // TODO: make this actually a timing request
-                        Fault fault =
-                            ready_inst->tc->getMMUPtr()->translateFunctional(
-                                req, ready_inst->tc, BaseMMU::Read);
-                        if (fault != NoFault) {
-                            DPRINTF(
-                                AMX,
-                                "Queue: Translation fault for Tile %d, Row "
-                                "%d at Vaddr 0x%lx\n",
-                                ready_inst->destTile, r, current_vaddr);
-                            ready_inst->failure =
-                                AmxInst::Failure::TRANSLATION;
-                            ready_inst->fault = fault;
-                            // Stop dispatching if translation fails
-                            stop_dispatch = true;
-                            break;
-                        }
+                        // increment first because finish() may run before
+                        // translateTiming() returns
+                        ready_inst->outstandingTranslations++;
 
-                        // create the packet
-                        PacketPtr pkt = new Packet(req, MemCmd::ReadReq);
-                        pkt->allocate(); // if the packet will carry data
+                        auto *translation = new AmxTranslation(
+                            *this, ready_inst->instId,
+                            ready_inst->destTile, r, offset,
+                            current_row_offset, chunk_size);
 
-                        // add the sender state information
-                        pkt->pushSenderState(new AmxSenderState(
-                            ready_inst->instId, ready_inst->destTile, r,
-                            offset, current_row_offset, chunk_size));
-
-                        // Send the packet to the CPU's memory port
-                        ready_inst->outstandingRequests++;
-                        memSidePort.schedTimingReq(pkt, curTick());
+                        // create the cache packet only after translation
+                        ready_inst->tc->getMMUPtr()->translateTiming(
+                            req, ready_inst->tc, translation, BaseMMU::Read);
 
                         bytes_remaining -= chunk_size;
                         current_row_offset += chunk_size;
@@ -394,11 +436,10 @@ AmxAccl::executeInstruction(AmxInst *ready_inst)
                     }
                 }
 
-                // cleanup if the instruction never issues because of queue
-                // being full or transalation failing etc
-                if (ready_inst->outstandingRequests == 0) {
-                    finishLoadInstruction(ready_inst);
-                }
+                // allow completion only after every translation is dispatched
+                const uint64_t inst_id = ready_inst->instId;
+                ready_inst->translationDispatchComplete = true;
+                maybeFinishLoadInstruction(inst_id);
             }
             break;
 
@@ -440,8 +481,105 @@ AmxAccl::executeInstruction(AmxInst *ready_inst)
 }
 
 void
+AmxAccl::finishTranslation(uint64_t inst_id, uint8_t dest_tile,
+                           uint8_t row_idx, uint8_t cache_offset,
+                           uint16_t row_offset, size_t bytes_to_copy,
+                           const Fault &fault, const RequestPtr &req)
+{
+    AmxInst *inst = findInstruction(inst_id);
+    panic_if(!inst, "AMX translation for unknown instruction %llu",
+             static_cast<unsigned long long>(inst_id));
+    panic_if(inst->outstandingTranslations == 0,
+             "AMX instruction %llu received too many translation callbacks",
+             static_cast<unsigned long long>(inst_id));
+    panic_if(inst->opcode != AmxOpcode::AMX_LOAD ||
+                 inst->state != AmxInst::State::EXECUTING,
+             "AMX translation returned for a non-executing load %llu",
+             static_cast<unsigned long long>(inst_id));
+    panic_if(inst->destTile != dest_tile,
+             "AMX translation for instruction %llu has the wrong tile",
+             static_cast<unsigned long long>(inst_id));
+
+    // every callback consumes one pending translation
+    inst->outstandingTranslations--;
+
+    if (fault != NoFault) {
+        DPRINTF(AMX,
+                "Translation fault for instruction %llu, Tile %u, Row %u, "
+                "vaddr 0x%lx\n",
+                static_cast<unsigned long long>(inst_id),
+                static_cast<unsigned>(dest_tile),
+                static_cast<unsigned>(row_idx), req->getVaddr());
+
+        // keep the first failure and drain work that already started
+        // do not send a fragment without a valid physical address
+        if (inst->failure == AmxInst::Failure::NONE) {
+            inst->failure = AmxInst::Failure::TRANSLATION;
+            inst->fault = fault;
+        }
+
+        maybeFinishLoadInstruction(inst_id);
+        return;
+    }
+
+    // if another fragment failed, consume this callback without sending
+    if (inst->failure != AmxInst::Failure::NONE) {
+        maybeFinishLoadInstruction(inst_id);
+        return;
+    }
+
+    panic_if(!req->hasPaddr(),
+             "AMX translation for instruction %llu returned no paddr",
+             static_cast<unsigned long long>(inst_id));
+
+    // record translation latency before sending the memory packet
+    req->setTranslateLatency();
+
+    PacketPtr pkt = new Packet(req, MemCmd::ReadReq);
+    pkt->allocate();
+    pkt->pushSenderState(new AmxSenderState(
+        inst_id, dest_tile, row_idx, cache_offset, row_offset, bytes_to_copy));
+
+    // increment before scheduling so every response has a pending request
+    inst->outstandingRequests++;
+    memSidePort.schedTimingReq(pkt, curTick());
+
+    DPRINTF(AMX,
+            "Translated and sent instruction %llu, Tile %u, Row %u: "
+            "vaddr 0x%lx -> paddr 0x%lx\n",
+            static_cast<unsigned long long>(inst_id),
+            static_cast<unsigned>(dest_tile), static_cast<unsigned>(row_idx),
+            req->getVaddr(), req->getPaddr());
+
+    maybeFinishLoadInstruction(inst_id);
+}
+
+void
+AmxAccl::maybeFinishLoadInstruction(uint64_t inst_id)
+{
+    AmxInst *inst = findInstruction(inst_id);
+    panic_if(!inst, "AMX completion check for unknown instruction %llu",
+             static_cast<unsigned long long>(inst_id));
+
+    // finish only after dispatch, translation, and cache access are complete
+    if (inst->translationDispatchComplete &&
+        inst->outstandingTranslations == 0 &&
+        inst->outstandingRequests == 0) {
+        finishLoadInstruction(inst);
+    }
+}
+
+void
 AmxAccl::finishLoadInstruction(AmxInst *inst)
 {
+    panic_if(!inst->translationDispatchComplete,
+             "AMX: Completing instruction %llu before translation dispatch "
+             "finished!",
+             static_cast<unsigned long long>(inst->instId));
+    panic_if(inst->outstandingTranslations != 0,
+             "AMX: Completing instruction %llu with outstanding "
+             "translations!",
+             static_cast<unsigned long long>(inst->instId));
     panic_if(inst->outstandingRequests != 0,
              "AMX: Completing instruction %llu with outstanding requests!",
              static_cast<unsigned long long>(inst->instId));
@@ -490,14 +628,8 @@ AmxAccl::handleMemResponse(PacketPtr pkt)
     panic_if(!state,
              "amx response packet arrived missing its tracking senderstate!");
 
-    // find the corresponding instruction in the instructionQueue
-    AmxInst *inst = nullptr;
-    for (auto &queued_inst : instructionQueue) {
-        if (queued_inst.instId == state->instId) {
-            inst = &queued_inst;
-            break;
-        }
-    }
+    // use the packet's stable id instead of keeping a queue pointer
+    AmxInst *inst = findInstruction(state->instId);
     panic_if(!inst, "AMX response for unknown instruction %llu",
              static_cast<unsigned long long>(state->instId));
 
@@ -545,15 +677,15 @@ AmxAccl::handleMemResponse(PacketPtr pkt)
              "AMX instruction %llu received too many responses",
              static_cast<unsigned long long>(inst->instId));
     inst->outstandingRequests--;
-    const bool load_complete = inst->outstandingRequests == 0;
+
+    // save the id because completion may erase the instruction
+    const uint64_t inst_id = state->instId;
 
     // clean up allocated memory
     delete state;
     delete pkt;
 
-    if (load_complete) {
-        finishLoadInstruction(inst);
-    }
+    maybeFinishLoadInstruction(inst_id);
 }
 
 void

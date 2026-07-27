@@ -1,6 +1,9 @@
 #ifndef __AMX_ACCL_HH__
 #define __AMX_ACCL_HH__
 
+#include <deque>
+
+#include "arch/generic/mmu.hh"
 #include "cpu/base.hh"
 #include "cpu/thread_context.hh"
 #include "mem/packet.hh" // Required for PacketPtr usage
@@ -9,8 +12,6 @@
 #include "mem/qport.hh" // Required for using Queued Ports
 #include "params/AmxAccl.hh"
 #include "sim/clocked_object.hh"
-
-#include <deque>
 
 namespace gem5
 {
@@ -65,8 +66,8 @@ class AmxAccl : public ClockedObject
                              // internal tile matrix row
         size_t bytesToCopy;  // The explicit number of bytes to extract from
                              // this specific sub-packet
-        AmxSenderState(uint64_t inst_id, uint8_t dest, uint8_t row, uint8_t c_offset,
-                       uint16_t r_offset, size_t bytes)
+        AmxSenderState(uint64_t inst_id, uint8_t dest, uint8_t row,
+                       uint8_t c_offset, uint16_t r_offset, size_t bytes)
             : instId(inst_id),
               destTile(dest),
               rowIdx(row),
@@ -94,8 +95,14 @@ class AmxAccl : public ClockedObject
         uint64_t addr; // memory address (for loads/stores)
         size_t stride; // and also the stride
 
-        uint32_t outstandingRequests; // the conuter for memory responses
-        ThreadContext *tc;            // pointer to thread context
+        // track the asynchronous translation and cache access stages
+        uint32_t outstandingTranslations;
+        uint32_t outstandingRequests;
+
+        // prevent immediate callbacks from finishing during dispatch
+        bool translationDispatchComplete;
+
+        ThreadContext *tc; // pointer to thread context
 
         enum class Failure
         {
@@ -115,8 +122,9 @@ class AmxAccl : public ClockedObject
         } state;
 
         // amx inst constructor
-        AmxInst(uint64_t id, AmxOpcode op, int8_t dest, int8_t t1, int8_t t2,
-                uint64_t addr = 0, uint32_t stride = 0, ThreadContext *_tc = nullptr)
+        AmxInst(uint64_t id, AmxOpcode op, int8_t dest, int8_t t1,
+                int8_t t2, uint64_t addr = 0, uint32_t stride = 0,
+                ThreadContext *_tc = nullptr)
             : instId(id),
               opcode(op),
               destTile(dest),
@@ -124,7 +132,9 @@ class AmxAccl : public ClockedObject
               srcTile2(t2),
               addr(addr),
               stride(stride),
+              outstandingTranslations(0),
               outstandingRequests(0),
+              translationDispatchComplete(false),
               tc(_tc),
               failure(Failure::NONE),
               fault(NoFault),
@@ -174,24 +184,52 @@ class AmxAccl : public ClockedObject
     void printInt32Tile(uint8_t tile_idx);
 
   private:
+    // create one callback for each virtual cache-line request
+    // finish() may run immediately (a TLB hit or an X86 SE-mode miss) or later
+    // after a page walk; only finish() receives the physical address
+    // todo: model dtlb latency, translation bandwidth, outstanding limits,
+    // and cpu/amx contention; x86 se-mode misses currently complete
+    // immediately, so page-walk traffic requires full-system mode or a
+    // synthetic se-mode model
+    class AmxTranslation : public BaseMMU::Translation
+    {
+      private:
+        AmxAccl &owner;
+
+        // carry placement metadata until a translated packet can be created
+        uint64_t instId;
+        uint8_t destTile;
+        uint8_t rowIdx;
+        uint8_t cacheOffset;
+        uint16_t rowOffset;
+        size_t bytesToCopy;
+
+      public:
+        AmxTranslation(AmxAccl &owner, uint64_t inst_id, uint8_t dest_tile,
+                       uint8_t row_idx, uint8_t cache_offset,
+                       uint16_t row_offset, size_t bytes_to_copy);
+
+        void markDelayed() override;
+        void finish(const Fault &fault, const RequestPtr &req,
+                    ThreadContext *tc, BaseMMU::Mode mode) override;
+    };
+
     AmxInst *findReadyInstruction();
+    AmxInst *findInstruction(uint64_t inst_id);
     void executeInstruction(AmxInst *ready_inst);
+    void finishTranslation(uint64_t inst_id, uint8_t dest_tile,
+                           uint8_t row_idx, uint8_t cache_offset,
+                           uint16_t row_offset, size_t bytes_to_copy,
+                           const Fault &fault, const RequestPtr &req);
+    void maybeFinishLoadInstruction(uint64_t inst_id);
     void finishLoadInstruction(AmxInst *inst);
 
-    // Pointer to the parent CPU. In core multiplexing, we access the cache
-    // pipeline directly through the CPU's data port, removing the need for a
-    // separate RequestPort.
+    // keep the parent cpu association used by the amx instruction path
     BaseCPU *cpu;
 
     // internal registers for AMX.
     TileCfg currentCfg;       // Global config state register
     TileReg tiles[NUM_TILES]; // Matrix register file (TMM0 - TMM7)
-
-    // keeps track of exactly how many sub-requests remain outstanding for each
-    // tile. when tileOutstandingRequests[tile_idx] reaches 0, the tile load is
-    // complete.
-    size_t tileOutstandingRequests[NUM_TILES]; // TODO: replace this with the
-                                               // AmxInst object
 
     // for out of order logic
     std::deque<AmxInst> instructionQueue;
