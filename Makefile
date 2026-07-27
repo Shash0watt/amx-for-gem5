@@ -10,7 +10,8 @@ INCLUDES = -I$(GEM5_PATH)/include
 LDFLAGS = -L$(GEM5_PATH)/util/m5/build/$(ISA)/out -lm5
 
 # source files and targets
-SRCS_CPP = $(wildcard configs/amx/tests/*.cpp)
+ALL_CPP = $(wildcard configs/amx/tests/*.cpp)
+SRCS_CPP = $(filter-out configs/amx/tests/load_bench.cpp,$(ALL_CPP))
 
 TARGETS = $(patsubst configs/amx/tests/%.cpp,configs/amx/binaries/%,$(SRCS_CPP))
 

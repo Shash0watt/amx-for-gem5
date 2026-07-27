@@ -2,6 +2,8 @@
 #include <gem5/m5ops.h>
 #include <iostream>
 
+#include "tile_config.hh"
+
 int
 main()
 {
@@ -22,7 +24,15 @@ main()
 
     std::cout << "multiple tile loads test" << std::endl;
 
+    alignas(64) __tilecfg config = {};
+    config.palette_id = 1;
+    config.colsb[0] = 64;
+    config.rows[0] = 16;
+    config.colsb[1] = 64;
+    config.rows[1] = 16;
+
     m5_work_begin(0, 0);
+    amx_tile_loadconfig(&config);
 
     // load array1 into tile 0
     amx_tile_loadd(0, array1, stride);
@@ -33,6 +43,10 @@ main()
     // load array1 into tile 1
     amx_tile_loadd(1, array1, stride);
 
+    alignas(64) __tilecfg release = {};
+    amx_tile_loadconfig(&release);
+
+    m5_quiesce_cycle(10000);
     m5_work_end(0, 0);
 
     std::cout << "multiple tile loads test" << std::endl;

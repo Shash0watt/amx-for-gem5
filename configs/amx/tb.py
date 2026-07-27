@@ -33,7 +33,7 @@ $ ./gem5.debug -rs amx/tb.py
 
 # Define the path to your compiled test binary containing the custom instructions
 # binary_path = Path("configs/amx/binaries/load_test")
-binary_path = Path("configs/amx/binaries/ooo_test")
+binary_path = Path("configs/amx/binaries/loadconfig_test")
 
 
 # Setup Cache and Memory
