@@ -12,3 +12,8 @@ class AmxAccl(ClockedObject):
     mem_side = RequestPort(
         "AMX memory-side port for tile loads and stores"
     )
+
+    # intel amx optimization manual table 20-2 reports about 204 cycles.
+    config_latency = Param.Cycles(
+        204, "minimum issue-to-completion latency for tile configuration"
+    )

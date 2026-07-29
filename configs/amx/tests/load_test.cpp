@@ -43,7 +43,7 @@ main(int argc, char *argv[])
     config.rows[0] = 16;
 
     m5_work_begin(0, 0);
-
+ 
     // get permission from OS to use intel AMX
 
     // use replacment op for tile config
@@ -57,6 +57,6 @@ main(int argc, char *argv[])
 
     m5_quiesce_cycle(10000);
     m5_work_end(0, 0);
-
+ 
     return 0;
 }

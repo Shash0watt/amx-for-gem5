@@ -6,7 +6,14 @@ The goal is to get a gemm kernel that uses intel AMX intrinsics working in gem5.
 
 The high level plan is to get a pesudo instruction to go through the O3 cpu pipeline, use the structures that the O3 cpu has to allow for proper out of order issue, then a AMX simObject can handle the execution semantics (keep track of 2d tile regsiters & acclerator configs, utilization etc) and use the LSQ to make sure that memory retires are handled properly.
 
-##
+## todo for me
+verify the new check issue statements
+understand exactly how the TILECFG memory layout was corrected
+what is the fragment format, is there a better name for it
+tile loads are able to execute seperate from the generic dispatch
+understand how latency modeling works
+what does it mean for memeory response handling to be more defensive
+what does it mean for generalized completion handling
 
 
 some questions I have are:
