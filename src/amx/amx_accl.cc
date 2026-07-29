@@ -663,7 +663,7 @@ AmxAccl::handleMemResponse(PacketPtr pkt)
                      pkt->getSize() - read_chunk.sourceOffset,
              "AMX response read chunk exceeds its packet");
 
-    uint8_t *destination = nullptr;
+    void *destination = nullptr;
     switch (read_chunk.target) {
         case MemoryTarget::TILE_ROW:
             panic_if(inst->opcode != AmxOpcode::AMX_LOAD,
