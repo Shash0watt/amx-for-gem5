@@ -2,7 +2,16 @@
 #include <gem5/m5ops.h>
 #include <iostream>
 
-#include "tile_config.hh"
+typedef struct
+{
+    uint8_t palette_id;
+    uint8_t start_row;
+    uint8_t reserved_0[14];
+    uint16_t colsb[16];
+    uint8_t rows[16];
+} __tilecfg;
+
+static_assert(sizeof(__tilecfg) == 64);
 
 int
 main()
@@ -22,7 +31,7 @@ main()
         }
     }
 
-    std::cout << "multiple tile loads test" << std::endl;
+    std::cout << "out-of-order tile load test" << std::endl;
 
     alignas(64) __tilecfg config = {};
     config.palette_id = 1;
@@ -42,6 +51,8 @@ main()
 
     // load array1 into tile 1
     amx_tile_loadd(1, array1, stride);
+    // we should expect to see this load complete earlier if out of order
+    // behaviour is allowed
 
     alignas(64) __tilecfg release = {};
     amx_tile_loadconfig(&release);
@@ -49,7 +60,7 @@ main()
     m5_quiesce_cycle(10000);
     m5_work_end(0, 0);
 
-    std::cout << "multiple tile loads test" << std::endl;
+    std::cout << "out-of-order tile load test complete" << std::endl;
 
     return 0;
 }

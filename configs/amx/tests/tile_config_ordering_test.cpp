@@ -13,7 +13,8 @@ typedef struct
 
 static_assert(sizeof(__tilecfg) == 64);
 
-// this workload checks that configuration controls the following tile load.
+// test to check that configuration controls following tile loads do not not
+// issue before older loads complete
 int
 main()
 {
@@ -44,8 +45,8 @@ main()
     amx_tile_loadconfig(&release);
 
     // TODO: replace this wait with amx actual signaling
-    m5_quiesce_cycle(
-        10000); // wait for some cycles to ensure the tile loads are complete
+    // wait for some cycles to ensure the tile loads are complete
+    m5_quiesce_cycle(10000);
     m5_work_end(0, 0);
 
     return 0;

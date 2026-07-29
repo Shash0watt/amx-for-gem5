@@ -4,7 +4,7 @@
 
 #include <gem5/m5ops.h> // for annotation in gem5
 
-// compile by running 'make' in terminal
+// Legacy AVX addition test retained for reference.
 
 uint32_t get_float_bits(float f) {
     union {

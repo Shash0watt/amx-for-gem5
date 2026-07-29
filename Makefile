@@ -11,7 +11,7 @@ LDFLAGS = -L$(GEM5_PATH)/util/m5/build/$(ISA)/out -lm5
 
 # source files and targets
 ALL_CPP = $(wildcard configs/amx/tests/*.cpp)
-SRCS_CPP = $(filter-out configs/amx/tests/load_bench.cpp,$(ALL_CPP))
+SRCS_CPP = $(filter-out configs/amx/tests/tile_load_benchmark.cpp,$(ALL_CPP))
 
 TARGETS = $(patsubst configs/amx/tests/%.cpp,configs/amx/binaries/%,$(SRCS_CPP))
 

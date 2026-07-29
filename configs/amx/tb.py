@@ -32,8 +32,8 @@ $ ./gem5.debug -rs amx/tb.py
 """
 
 # Define the path to your compiled test binary containing the custom instructions
-# binary_path = Path("configs/amx/binaries/load_test")
-binary_path = Path("configs/amx/binaries/loadconfig_test")
+# binary_path = Path("configs/amx/binaries/tile_load_unaligned_test")
+binary_path = Path("configs/amx/binaries/tile_config_ordering_test")
 
 
 # Setup Cache and Memory

@@ -584,8 +584,8 @@ many independently translated memory requests.
 ### 9.1 Entry from the workload
 
 The test calls `amx_tile_loadd()` in files such as
-`configs/amx/tests/load_test.cpp`. This is currently a gem5 pseudo-instruction,
-not a decoded architectural TILELOADD instruction.
+`configs/amx/tests/tile_load_unaligned_test.cpp`. This is currently a gem5
+pseudo-instruction, not a decoded architectural TILELOADD instruction.
 
 The path is:
 
@@ -885,4 +885,3 @@ Then practice with the source:
 - [Intel 64 and IA-32 software developer manuals](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html)
 - `src/amx/docs/amx-system-overview.md`
 - `src/amx/docs/tile-load.md`
-

@@ -19,14 +19,16 @@ static_assert(sizeof(__tilecfg) == 64);
 int
 main(int argc, char *argv[])
 {
+    // setup test
     uint64_t dest_tile = 0;
     size_t stride = 64;
 
-    // set this value to 0 to have the data be perfectly aligned
+    // -- TEST CONFIG --
+    //  set this value to 0 to have the data be perfectly aligned
     int offset = 60;
 
-    // create a matrix that  dosen't fit in the cache-line boundaries
-    // intentionally
+    // Step 1. Create a matrix that intentionally crosses cache-line
+    // boundaries.
     alignas(64) int8_t buffer[16 * 64 + 64] = {0};
     // get a pointer to the start of the test location
     int8_t *offset_matrix = &buffer[offset];
@@ -37,13 +39,15 @@ main(int argc, char *argv[])
         }
     }
 
+    // Step 2. load the tile config.
     alignas(64) __tilecfg config = {};
     config.palette_id = 1;
     config.colsb[0] = 64;
     config.rows[0] = 16;
 
-    m5_work_begin(0, 0);
- 
+    // Step 3. load the config and then load data into the tile
+    m5_work_begin(0, 0); // mark the start of the workload in gem5
+
     // get permission from OS to use intel AMX
 
     // use replacment op for tile config
@@ -56,7 +60,7 @@ main(int argc, char *argv[])
     amx_tile_loadconfig(&release);
 
     m5_quiesce_cycle(10000);
-    m5_work_end(0, 0);
- 
+    m5_work_end(0, 0); // mark the end of the workload in gem5
+
     return 0;
 }
