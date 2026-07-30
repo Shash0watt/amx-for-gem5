@@ -46,7 +46,7 @@ main()
 
     // TODO: replace this wait with amx actual signaling
     // wait for some cycles to ensure the tile loads are complete
-    m5_quiesce_cycle(10000);
+    m5_quiesce_cycle(10);
     m5_work_end(0, 0);
 
     return 0;

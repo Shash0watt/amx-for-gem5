@@ -1,5 +1,6 @@
 # System components
 # Standard libraries
+
 from pathlib import Path
 
 import m5
@@ -33,7 +34,9 @@ $ ./gem5.debug -rs amx/tb.py
 
 # Define the path to your compiled test binary containing the custom instructions
 # binary_path = Path("configs/amx/binaries/tile_load_unaligned_test")
-binary_path = Path("configs/amx/binaries/tile_config_ordering_test")
+# binary_path = Path("configs/amx/binaries/tile_config_ordering_test")
+binary_path = Path("configs/amx/binaries/tile_load_out_of_order_test")
+
 
 
 # Setup Cache and Memory
@@ -97,8 +100,8 @@ def workbegin_handler():
     # Enable ExecAll here to trace instructions ONLY in your region of interest
     # This prevents the terminal from being flooded with standard C-library setup instructions.
     # m5.debug.flags["ExecAll"].enable()
-    m5.debug.flags["Cache"].enable()
-    m5.debug.flags["PseudoInst"].enable()
+    # m5.debug.flags["Cache"].enable()
+    # m5.debug.flags["PseudoInst"].enable()
     m5.debug.flags["AMX"].enable()
 
     yield False  # Yielding False tells the simulator to continue running
@@ -109,11 +112,11 @@ def workend_handler():
 
     # Disable tracing once the work is done
     # m5.debug.flags["ExecAll"].disable()
-    m5.debug.flags["Cache"].disable()
-    m5.debug.flags["PseudoInst"].disable()
+    # m5.debug.flags["Cache"].disable()
+    # m5.debug.flags["PseudoInst"].disable()
     m5.debug.flags["AMX"].disable()
 
-    yield False  # Yielding False tells the simulator to continue running
+    yield True  # Yielding False tells the simulator to continue running
 
 
 # Setup and Run Simulator

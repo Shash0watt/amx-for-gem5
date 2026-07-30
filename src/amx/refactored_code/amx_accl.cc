@@ -156,7 +156,7 @@ AmxAccl::startAmxLoadConfig(ThreadContext *tc, uint64_t config_addr)
     instructionQueue.emplace_back(id, AmxOpcode::AMX_CONFIG, -1, -1, -1,
                                   config_addr, 0, tc);
 
-    DPRINTF(AMX, "Adding tile configuration %llu to queue\n",
+    DPRINTF(AMX, "Adding a LOAD CFG for Tile %llu to queue\n",
             static_cast<unsigned long long>(id));
     tryIssue();
 }
