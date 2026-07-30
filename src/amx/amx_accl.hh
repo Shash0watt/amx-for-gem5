@@ -23,13 +23,14 @@ namespace gem5
 class BaseCPU;
 class ThreadContext;
 
-/**
- * Timing model for Intel AMX tile configuration and tile-memory operations.
- *
- * Public start methods submit architectural operations. The scheduler selects
- * hazard-free work, execution methods describe each operation, and the memory
- * pipeline handles asynchronous translation and cache responses.
- */
+//  Timing model for Intel AMX in gem5! tile configuration and tile-memory
+//  operations.
+
+//  Public start methods submit architectural operations. The
+//  scheduler selects hazard-free work, execution methods describe each
+//  operation, and the memory pipeline handles asynchronous translation and
+//  cache responses.
+
 class AmxAccl : public ClockedObject
 {
   public:
@@ -47,9 +48,7 @@ class AmxAccl : public ClockedObject
     void setCPU(BaseCPU *cpu);
     BaseCPU *
     getCPU() const
-    {
-        return cpu;
-    }
+    { return cpu; }
 
     // TODO: replace serialized pseudo-ops with a retire-aware instruction
     // path.

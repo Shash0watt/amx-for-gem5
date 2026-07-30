@@ -10,28 +10,55 @@ namespace gem5
 AmxAccl::AmxInst *
 AmxAccl::findReadyInstruction()
 {
+    // from oldest first -> youngest instruction
     for (AmxInst &instruction : instructionQueue) {
-        // A configuration is a full barrier: it waits for older work and
-        // prevents all younger work from passing it.
+
+        // Make sure that tile_config can only issue if it is the oldest
         if (instruction.opcode == AmxOpcode::Config) {
+            // It's only the oldest, when it's at the front of the queue
             const bool is_front = &instruction == &instructionQueue.front();
+            // The configuration is ready only if it has not issued, it is the
+            // oldest queued instruction, and no instruction is currently
+            // reading or writing a tile.
             if (instruction.state == AmxInst::State::Pending && is_front &&
                 allTilesIdle()) {
                 return &instruction;
             }
+            // Stop searching even when this configuration is not ready. If we
+            // continued, a younger instruction could incorrectly pass the
+            // configuration barrier.
             return nullptr;
         }
 
+        // Executing instructions stay in the queue until completion. We can't
+        // return a true for them, but independent younger work may still be
+        // ready and can be issued
         if (instruction.state != AmxInst::State::Pending) {
             continue;
         }
 
-        if (!hasActiveTileHazard(instruction) &&
-            !hasOlderTileHazard(instruction)) {
-            return &instruction;
+        // The scoreboard records tiles being used by instructions that are
+        // already executing. Wait if this instruction would conflict with one
+        // of those active readers or writers.
+        if (hasActiveTileHazard(instruction)) {
+            continue;
         }
-    }
 
+        // Also wait if this instruction depends on an older instruction that
+        // has not completed. This preserves dependencies even when that older
+        // instruction is itself still pending and therefore not on the active
+        // scoreboard yet.
+        if (hasOlderTileHazard(instruction)) {
+            continue;
+            // TODO: when we connect properly with the O3 CPU we should allow
+            // TODO: renaming.. well only if saphire rapids supports it
+        }
+
+        // This is the oldest pending instruction with no active or queue-order
+        // hazard, so it is safe for the issue loop to execute it.
+        return &instruction;
+    }
+    // The queue is empty, or every pending instruction is currently blocked.
     return nullptr;
 }
 
@@ -41,11 +68,22 @@ AmxAccl::hasActiveTileHazard(const AmxInst &instruction) const
     for (int tile = 0; tile < NUM_TILES; ++tile) {
         const ScoreboardEntry &scoreboard = tileScoreboard[tile];
 
-        if (instruction.readsTile(tile) && scoreboard.writeActive) {
-            return true;
-        }
-        if (instruction.writesTile(tile) &&
-            (scoreboard.writeActive || scoreboard.readerCount > 0)) {
+        // RAW: this instruction wants to read the tile, but an active older
+        // instruction has not finished writing it yet.
+        const bool raw = AmxInst::hasRAW(instruction.readsTile(tile),
+                                         scoreboard.writeActive);
+
+        // WAW: this instruction wants to write the tile while an active older
+        // instruction is still writing it.
+        const bool waw = AmxInst::hasWAW(instruction.writesTile(tile),
+                                         scoreboard.writeActive);
+
+        // WAR: this instruction wants to write the tile while one or more
+        // active older instructions are still reading it.
+        const bool war = AmxInst::hasWAR(instruction.writesTile(tile),
+                                         scoreboard.readerCount > 0);
+
+        if (raw || war || waw) {
             return true;
         }
     }
@@ -60,8 +98,18 @@ AmxAccl::hasOlderTileHazard(const AmxInst &instruction) const
         if (&older == &instruction) {
             return false;
         }
-        if (older.state != AmxInst::State::Completed &&
-            instruction.hasTileHazardWith(older)) {
+
+        if (older.state == AmxInst::State::Completed) {
+            continue;
+        }
+
+        // Unlike the activeTileHazard check, these also catch dependencies on
+        // an older instruction that has not issued yet.
+        const bool raw = instruction.hasRAW(older);
+        const bool war = instruction.hasWAR(older);
+        const bool waw = instruction.hasWAW(older);
+
+        if (raw || war || waw) {
             return true;
         }
     }

@@ -51,7 +51,17 @@ struct Instruction
 
     bool readsTile(int tile) const;
     bool writesTile(int tile) const;
-    bool hasTileHazardWith(const Instruction &older) const;
+
+    // Test accesses to one tile. The first access belongs to the younger
+    // instruction and the second belongs to the older instruction.
+    static bool hasRAW(bool younger_reads, bool older_writes);
+    static bool hasWAR(bool younger_writes, bool older_reads);
+    static bool hasWAW(bool younger_writes, bool older_writes);
+
+    // Test all tiles used by this instruction against an older instruction.
+    bool hasRAW(const Instruction &older) const;
+    bool hasWAR(const Instruction &older) const;
+    bool hasWAW(const Instruction &older) const;
 
     uint64_t id;
     Opcode opcode;

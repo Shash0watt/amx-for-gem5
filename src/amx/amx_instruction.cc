@@ -51,12 +51,52 @@ Instruction::writesTile(int tile) const
 }
 
 bool
-Instruction::hasTileHazardWith(const Instruction &older) const
+Instruction::hasRAW(bool younger_reads, bool older_writes)
+{
+    return younger_reads && older_writes;
+}
+
+bool
+Instruction::hasWAR(bool younger_writes, bool older_reads)
+{
+    return younger_writes && older_reads;
+}
+
+bool
+Instruction::hasWAW(bool younger_writes, bool older_writes)
+{
+    return younger_writes && older_writes;
+}
+
+bool
+Instruction::hasRAW(const Instruction &older) const
 {
     for (int tile = 0; tile < NumTiles; ++tile) {
-        if ((readsTile(tile) && older.writesTile(tile)) ||
-            (writesTile(tile) &&
-             (older.readsTile(tile) || older.writesTile(tile)))) {
+        if (hasRAW(readsTile(tile), older.writesTile(tile))) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool
+Instruction::hasWAR(const Instruction &older) const
+{
+    for (int tile = 0; tile < NumTiles; ++tile) {
+        if (hasWAR(writesTile(tile), older.readsTile(tile))) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool
+Instruction::hasWAW(const Instruction &older) const
+{
+    for (int tile = 0; tile < NumTiles; ++tile) {
+        if (hasWAW(writesTile(tile), older.writesTile(tile))) {
             return true;
         }
     }
