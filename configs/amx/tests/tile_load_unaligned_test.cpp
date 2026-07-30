@@ -59,7 +59,7 @@ main(int argc, char *argv[])
     alignas(64) __tilecfg release = {};
     amx_tile_loadconfig(&release);
 
-    m5_quiesce_cycle(10000);
+    m5_quiesce_cycle(10);
     m5_work_end(0, 0); // mark the end of the workload in gem5
 
     return 0;
