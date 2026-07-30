@@ -141,6 +141,7 @@ class AmxAccl : public ClockedObject
     void executeStoreInstruction(AmxInst *instruction);
     void finishLoadInstruction(AmxInst *instruction);
     void finishConfigInstruction(uint64_t instruction_id);
+    void processConfigCompletionEvent();
     void commitTileConfig(const amx::TileConfig &config);
 
     // ---------------------------------------------------------------------
@@ -176,7 +177,7 @@ class AmxAccl : public ClockedObject
 
     const Cycles configLatency;
     EventFunctionWrapper configCompletionEvent;
-    uint64_t configCompletionInstructionId;
+    uint64_t pendingConfigInstructionId;
 
     struct ScoreboardEntry
     {

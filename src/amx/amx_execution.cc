@@ -109,10 +109,12 @@ AmxAccl::executeLoadInstruction(AmxInst *instruction)
             static_cast<unsigned long long>(instruction->id), tile, rows,
             row_bytes);
 
+    // mark the start of the instruction
     beginMemoryInstruction(instruction);
     tileScoreboard[tile].writeActive = true;
     tiles[tile] = {};
 
+    // make the split memory requests
     for (uint8_t row = 0;
          row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
         dispatchMemoryRead(instruction,
@@ -120,6 +122,7 @@ AmxAccl::executeLoadInstruction(AmxInst *instruction)
                            row_bytes, MemoryTarget::TileRow, tile, row);
     }
 
+    // mark the end of making requests
     finishMemoryDispatch(instruction);
 }
 
@@ -197,7 +200,7 @@ AmxAccl::finishConfigInstruction(uint64_t instruction_id)
             static_cast<unsigned long long>(instruction_id),
             static_cast<unsigned>(candidate.paletteId));
 
-    configCompletionInstructionId = 0;
+    pendingConfigInstructionId = 0;
     eraseInstruction(instruction_id);
     tryIssue();
 }

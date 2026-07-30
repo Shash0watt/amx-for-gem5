@@ -18,12 +18,18 @@ AmxAccl::AmxAccl(const AmxAcclParams &params)
       tilesConfigured(false),
       configLatency(params.config_latency),
       configCompletionEvent(
-          [this] { finishConfigInstruction(configCompletionInstructionId); },
+          [this] { processConfigCompletionEvent(); },
           name() + ".config_completion"),
-      configCompletionInstructionId(0)
+      pendingConfigInstructionId(0)
 {
     amx::clearTiles(tiles);
     DPRINTF(AMX, "Created the AMX SimObject\n");
+}
+
+void
+AmxAccl::processConfigCompletionEvent()
+{
+    finishConfigInstruction(pendingConfigInstructionId);
 }
 
 void

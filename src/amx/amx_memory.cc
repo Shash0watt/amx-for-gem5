@@ -12,6 +12,16 @@
 namespace gem5
 {
 
+// at a high level a instruction follows this path
+// 1. mark the instrcution as exectuing (reads, writes & pending completion)
+// 2. split each read into a cacheline size request
+// (becaause you can only make one request per line)
+// 3. address translation on the vaddr
+// 4. send the request through the gem5 system
+// ---
+// 5. gem5 callback -> copy the retured data with out callback function
+// 6. mark the instruction as completed
+
 // -------------------------------------------------------------------------
 // Memory-instruction dispatch
 // -------------------------------------------------------------------------
@@ -19,9 +29,18 @@ namespace gem5
 void
 AmxAccl::beginMemoryInstruction(AmxInst *instruction)
 {
+
+    // Mark as executing because we can only tell completion by the callback
+    // and counters
     instruction->state = AmxInst::State::Executing;
+
+    // Counters, make sure that we cannot finish until all translation
+    // callbacks and all resulting memory responses have drained.
     instruction->outstandingTranslations = 0;
     instruction->outstandingRequests = 0;
+
+    // A translation callback is allowed to run synchronously while the caller
+    // is still creating the rest of the reads.
     instruction->translationDispatchComplete = false;
     instruction->completionScheduled = false;
 }
@@ -29,11 +48,16 @@ AmxAccl::beginMemoryInstruction(AmxInst *instruction)
 void
 AmxAccl::finishMemoryDispatch(AmxInst *instruction)
 {
+    // Save the id to use for the completion check.
     const uint64_t instruction_id = instruction->id;
+
+    // Mark that no more 'work' will be created
     instruction->translationDispatchComplete = true;
+    // memory loads could be complete right away
     maybeFinishMemoryInstruction(instruction_id);
 }
 
+// this is the actual memory request
 void
 AmxAccl::dispatchMemoryRead(AmxInst *instruction, uint64_t virtual_address,
                             size_t bytes, MemoryTarget target, uint8_t tile,
@@ -44,20 +68,33 @@ AmxAccl::dispatchMemoryRead(AmxInst *instruction, uint64_t virtual_address,
                      std::numeric_limits<uint64_t>::max() - (bytes - 1),
              "AMX memory read crosses the address limit");
 
+    // AMX rows and the 64-byte tile configuration can start in the middle of
+    // a cache line or cross line boundaries, Issue one request for every
+    // cache line touched so the accesses behave like ordinary CPU cache-line
+    // traffic in gem5's memory hierarchy.
     const size_t cache_line_size = cpu->cacheLineSize();
     panic_if(cache_line_size == 0, "AMX requires a nonzero cache line size");
 
+    // `current_address` is for walking the guest-visible byte range.
+    // `destination_offset` is for walking the output buffer (a tile row or
+    // config staging buffer), independent of cache-line boundaries.
     uint64_t current_address = virtual_address;
     size_t destination_offset = 0;
     size_t remaining = bytes;
 
     while (remaining != 0 && instruction->failure == AmxInst::Failure::None) {
+        // Get the starting address of the containing cache line.
+        // The memoryrequest fetches the whole line so we need to keep track of
+        // sourceOffset/bytesToCopy to know which portion of the returned cache
+        // line belongs to our AMX load
         const uint64_t line_address =
             current_address - (current_address % cache_line_size);
         const size_t source_offset = current_address - line_address;
         const size_t chunk_bytes =
             std::min(remaining, cache_line_size - source_offset);
 
+        // This is the instruction along with all the metadata with this
+        // cache-line operation needed by other stages
         dispatchMemoryReadChunk(instruction, line_address, cache_line_size,
                                 {target, tile, row, source_offset,
                                  destination_offset, chunk_bytes});
@@ -75,6 +112,8 @@ AmxAccl::dispatchMemoryReadChunk(AmxInst *instruction,
                                  uint64_t virtual_address, size_t request_size,
                                  const MemoryReadChunk &read_chunk)
 {
+    // These are internal invariants.  Violating them indicates an AMX model
+    // bug rather than a guest-program error, so gem5 should stop immediately.
     panic_if(!instruction || !instruction->threadContext,
              "AMX read has no thread context");
     panic_if(read_chunk.sourceOffset > request_size ||
@@ -83,13 +122,23 @@ AmxAccl::dispatchMemoryReadChunk(AmxInst *instruction,
              "AMX memory read chunk exceeds its request");
 
     ThreadContext *tc = instruction->threadContext;
+
+    // We need to first translate out address to a physical one ot make a cach
+    // request
     RequestPtr request = std::make_shared<Request>(
         virtual_address, request_size, 0, tc->getCpuPtr()->dataRequestorId(),
         tc->pcState().instAddr(), tc->contextId());
 
-    // Translation can complete synchronously, so count it first.
+    // since we are waiting for a callback we need to mark that we have a
+    // pending translation
     instruction->outstandingTranslations++;
+
+    // we make a translation request that has our custom callback
     auto *translation = new AmxTranslation(*this, instruction->id, read_chunk);
+
+    // to perform a timing adadress translation, get the MMU from the thread
+    // context and use it's translate timing function so that we can get
+    // accurate page table walks and etc
     tc->getMMUPtr()->translateTiming(request, tc, translation, BaseMMU::Read);
 }
 
@@ -97,6 +146,8 @@ AmxAccl::dispatchMemoryReadChunk(AmxInst *instruction,
 // Address translation
 // -------------------------------------------------------------------------
 
+// Construct only the state that gem5's MMU will return to when translation
+// finishes; creating the callback does not itself start translation.
 AmxAccl::AmxTranslation::AmxTranslation(AmxAccl &owner,
                                         uint64_t instruction_id,
                                         const MemoryReadChunk &read_chunk)
@@ -106,6 +157,11 @@ AmxAccl::AmxTranslation::AmxTranslation(AmxAccl &owner,
 void
 AmxAccl::AmxTranslation::markDelayed()
 {
+    // gem5 calls markDelayed() when translation cannot complete immediately
+    // (for example, while modeling a TLB miss/page-table walk).  For our
+    // implementation no change is needed here because the
+    // outstanding-translation count already keeps the parent instruction alive
+    // until finish() arrives.
     DPRINTFS(AMX, &owner, "Translation delayed for instruction %llu\n",
              static_cast<unsigned long long>(instructionId));
 }
@@ -114,10 +170,12 @@ void
 AmxAccl::AmxTranslation::finish(const Fault &fault, const RequestPtr &request,
                                 ThreadContext *, BaseMMU::Mode mode)
 {
+    // This is out custom callback that we sent with the translation request
     panic_if(mode != BaseMMU::Read,
              "AMX load translation completed with a non-read mode");
 
     owner.finishTranslation(instructionId, readChunk, fault, request);
+
     delete this;
 }
 
@@ -126,6 +184,8 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
                            const MemoryReadChunk &read_chunk,
                            const Fault &fault, const RequestPtr &request)
 {
+    // We can look the instruction up again instead of carrying a pointer
+    // across the MMU operation.
     AmxInst *instruction = findInstruction(instruction_id);
     panic_if(!instruction, "AMX translation for unknown instruction %llu",
              static_cast<unsigned long long>(instruction_id));
@@ -135,18 +195,23 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
              "AMX instruction received too many translation callbacks");
 
     validateMemoryReadOwner(*instruction, read_chunk);
+
+    // Our translation is done, so we can mark it as complete
     instruction->outstandingTranslations--;
 
     if (fault != NoFault) {
-        if (instruction->failure == AmxInst::Failure::None) {
+        if (instruction->failure == AmxInst::Failure::None)
+        {
             instruction->failure = AmxInst::Failure::Translation;
             instruction->fault = fault;
         }
+        // this could be our last translation, so we should try and see if we
+        // can complete
         maybeFinishMemoryInstruction(instruction_id);
         return;
     }
 
-    // Once one operation fails, remaining translations only need to drain.
+    // There is a falilure, maybeFinish.. will panic and stop the simulation
     if (instruction->failure != AmxInst::Failure::None) {
         maybeFinishMemoryInstruction(instruction_id);
         return;
@@ -155,14 +220,31 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
     panic_if(!request->hasPaddr(),
              "AMX translation for instruction %llu returned no paddr",
              static_cast<unsigned long long>(instruction_id));
+
+    // Tell gem5 that the translation phase has ended
     request->setTranslateLatency();
 
+    //  gem5's memory ports exchange Packets, not Requests directly.  The
+    //  Request describes the access and its translated addresses; the Packet
+    //  adds the command, response data buffer, and routing/ownership state
+    //  used while the access travels through the timing memory system.
     PacketPtr packet = new Packet(request, MemCmd::ReadReq);
+
+    // A read response needs storage in which the cache/memory can return the
+    // line.  Packet::allocate() allocates that packet-owned data buffer.
     packet->allocate();
+
+    // SenderState is gem5's  way to carry component-private metadata, This is
+    // what lets us find what instruction the returned data corresponds to.
     packet->pushSenderState(new AmxSenderState(instruction_id, read_chunk));
 
-    // A response may return immediately, so count it before scheduling it.
+    // A gem5 timing response may return immediately, so count it before the
+    // queued port is allowed to send the packet.
     instruction->outstandingRequests++;
+
+    // schedTimingReq() is the QueuedRequestPort form of a timing send.  It
+    // submits the packet at the current simulated tick and handles request-
+    // port backpressure/retries if the downstream cache is busy.
     memSidePort.schedTimingReq(packet, curTick());
 
     DPRINTF(AMX,
@@ -179,10 +261,14 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
 void
 AmxAccl::handleMemoryResponse(PacketPtr packet)
 {
+
     panic_if(!packet, "AMX received a null memory response");
     DPRINTF(AMX, "Received memory response for paddr 0x%lx\n",
             packet->getAddr());
 
+    // Recover and remove the private metadata attached before the request was
+    // sent. popSenderState() is needed with gem5 because packets can carry
+    // a stack of sender states added by multiple components along their path.
     auto *state = dynamic_cast<AmxSenderState *>(packet->popSenderState());
     panic_if(!state, "AMX response is missing its sender state");
 
@@ -195,6 +281,9 @@ AmxAccl::handleMemoryResponse(PacketPtr packet)
              "AMX instruction %llu received too many responses",
              static_cast<unsigned long long>(instruction->id));
 
+    // A timing response may signal an error or, unexpectedly for a read,
+    // arrive without a data payload.  Record only the first failure so later
+    // responses merely drain the instruction's outstanding work.
     if (packet->isError() && instruction->failure == AmxInst::Failure::None) {
         instruction->failure = AmxInst::Failure::MemoryError;
     } else if (!packet->hasData() &&
@@ -203,27 +292,40 @@ AmxAccl::handleMemoryResponse(PacketPtr packet)
     }
 
     const MemoryReadChunk &read_chunk = state->readChunk;
+
+    // Check the response against the copy plan before doing pointer
+    // arithmetic. A packet size should be the same as a cache-line
+    // request size.
     panic_if(read_chunk.sourceOffset > packet->getSize() ||
                  read_chunk.bytesToCopy >
                      packet->getSize() - read_chunk.sourceOffset,
              "AMX response read chunk exceeds its packet");
 
+    // confirm that a memory read resonse belongs to the instruction and then
+    // returns data at the memory destination specified by the metadata
     void *destination = memoryDestination(*instruction, read_chunk);
     if (instruction->failure == AmxInst::Failure::None) {
+        // The packet contains a whole cache line.  Skip any bytes before the
+        // original virtual address and copy only this logical AMX chunk.
         const uint8_t *source =
             packet->getConstPtr<uint8_t>() + read_chunk.sourceOffset;
         std::memcpy(destination, source, read_chunk.bytesToCopy);
     }
 
+    // Save what we need for the completion check before releasing the
+    // per-packet objects
     instruction->outstandingRequests--;
     const uint64_t instruction_id = state->instructionId;
 
     delete state;
     delete packet;
 
+    // possible that we have a finished instruction at the end of handling the
+    // memory response
     maybeFinishMemoryInstruction(instruction_id);
 }
 
+// confirm that a memory read resonse belongs to the instruction
 void
 AmxAccl::validateMemoryReadOwner(const AmxInst &instruction,
                                  const MemoryReadChunk &read_chunk) const
@@ -243,12 +345,17 @@ AmxAccl::validateMemoryReadOwner(const AmxInst &instruction,
     panic("AMX memory read has an unknown target");
 }
 
+// returns data at the memory destination specified by the metadata
 void *
 AmxAccl::memoryDestination(AmxInst &instruction,
                            const MemoryReadChunk &read_chunk)
 {
+    // confirm tha tht
     validateMemoryReadOwner(instruction, read_chunk);
 
+    // Convert the target-independent callback metadata into the actual host
+    // address where response bytes belong.  These are simulator data
+    // structures representing architectural AMX state, not guest addresses.
     switch (read_chunk.target) {
         case MemoryTarget::TileRow:
             panic_if(read_chunk.tile >= NUM_TILES ||
@@ -262,6 +369,9 @@ AmxAccl::memoryDestination(AmxInst &instruction,
                         .data[read_chunk.row][read_chunk.destinationOffset];
 
         case MemoryTarget::TileConfig:
+            // Configuration bytes are staged on the instruction.  They are
+            // decoded, validated, and committed only after the complete read
+            // succeeds, so a partial response cannot alter active config.
             panic_if(read_chunk.destinationOffset > TILE_CONFIG_BYTES ||
                          read_chunk.bytesToCopy >
                              TILE_CONFIG_BYTES - read_chunk.destinationOffset,
@@ -280,16 +390,27 @@ AmxAccl::memoryDestination(AmxInst &instruction,
 void
 AmxAccl::maybeFinishMemoryInstruction(uint64_t instruction_id)
 {
+    // Every path that creates or drains asynchronous work calls this helper.
+
+    // This function keeps the “is everything finished?” logic in one place,
+    // ensuring the instruction completes only when all required work is done,
+    // regardless of callback arrival order.
     AmxInst *instruction = findInstruction(instruction_id);
     panic_if(!instruction, "AMX completion check for unknown instruction %llu",
              static_cast<unsigned long long>(instruction_id));
 
+    // All three conditions are required:
+    //   - dispatchComplete: the execution loop will create no more reads;
+    //   - no translations: every MMU callback has returned;
+    //   - no requests: every packet sent to memory has received a response.
     if (!instruction->translationDispatchComplete ||
         instruction->outstandingTranslations != 0 ||
         instruction->outstandingRequests != 0) {
         return;
     }
 
+    // Loads have no additional modeled execution delay once their bytes have
+    // arrived, so they can commit immediately.
     if (instruction->opcode == AmxOpcode::Load) {
         finishLoadInstruction(instruction);
         return;
@@ -298,20 +419,29 @@ AmxAccl::maybeFinishMemoryInstruction(uint64_t instruction_id)
     panic_if(instruction->opcode != AmxOpcode::Config,
              "AMX memory completion reached an unsupported opcode");
 
+    // A failed config has nothing valid to commit and should be reported
+    // immediately rather than waiting for the normal configuration latency.
     if (instruction->failure != AmxInst::Failure::None) {
         finishConfigInstruction(instruction_id);
         return;
     }
     if (instruction->completionScheduled) {
+        // Several callbacks can converge here at the same simulated tick;
+        // only the first fully-drained check may schedule completion.
         return;
     }
 
     panic_if(configCompletionEvent.scheduled(),
              "AMX scheduled two configuration completions");
     instruction->completionScheduled = true;
-    configCompletionInstructionId = instruction_id;
+    pendingConfigInstructionId = instruction_id;
 
-    // Memory latency overlaps the minimum configuration latency.
+    // gem5 models delayed actions by placing Events on its event queue. The
+    // config operation may finish no earlier than configLatency cycles after
+    // issue, (based on what it says in the optimisation guide) but time spent
+    // waiting for translation/memory overlaps that latency.  If memory took
+    // longer, clockEdge() allows completion on the current AMX clock boundary;
+    // otherwise `earliest` enforces the minimum.
     const Tick earliest =
         instruction->issueTick + cyclesToTicks(configLatency);
     schedule(configCompletionEvent, std::max(clockEdge(), earliest));

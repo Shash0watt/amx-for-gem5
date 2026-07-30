@@ -69,7 +69,7 @@ AmxAccl::tryIssue()
         // multiple instructions can still issue at the same 'simulation time'
         return;
     }
-    
+
     issuingInstructions = true;
 
     while (AmxInst *instruction = findReadyInstruction()) {
