@@ -1,9 +1,13 @@
 Import('*')
 
-# define sim object from AmxAccl.py as AmxAccl
+# Define the SimObject and its independently organized implementation units.
 SimObject('AmxAccl.py', sim_objects=['AmxAccl'])
-# declaring amx_accl as the src filke
 Source('amx_accl.cc')
-# create a debug flag for the AMX object
+Source('amx_execution.cc')
+Source('amx_instruction.cc')
+Source('amx_memory.cc')
+Source('amx_scheduler.cc')
+Source('amx_sim_object.cc')
+Source('amx_tile.cc')
+
 DebugFlag('AMX')
-# custom debug flag for AMX
