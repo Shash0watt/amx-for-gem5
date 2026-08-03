@@ -5,10 +5,10 @@
 
 struct TileConfig
 {
-    uint8_t palette_id;
-    uint8_t start_row;
-    uint8_t reserved_0[14];
-    uint16_t colsb[16];
+    uint8_t paletteId;
+    uint8_t startRow;
+    uint8_t reserved[14];
+    uint16_t columnBytes[16];
     uint8_t rows[16];
 };
 
@@ -28,13 +28,13 @@ main()
     }
 
     alignas(64) TileConfig full = {};
-    full.palette_id = 1;
-    full.colsb[0] = 64;
+    full.paletteId = 1;
+    full.columnBytes[0] = 64;
     full.rows[0] = 16;
 
     alignas(64) TileConfig small = {};
-    small.palette_id = 1;
-    small.colsb[0] = 16;
+    small.paletteId = 1;
+    small.columnBytes[0] = 16;
     small.rows[0] = 4;
 
     alignas(64) TileConfig release = {};
@@ -54,9 +54,10 @@ main()
     amx_tile_loadd(tile, source, stride);
 
     amx_tile_loadconfig(&release);
-    
-    m5_quiesce_cycle(10);
+
     m5_work_end(0, 0);
+    m5_exit(750);
+    m5_quiesce();
 
     return 0;
 }

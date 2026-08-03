@@ -1,6 +1,4 @@
-# System components
-# Standard libraries
-
+import argparse
 from pathlib import Path
 
 import m5
@@ -26,19 +24,16 @@ from amx_private_l1_private_l2_cache_hierarchy import (
     AmxPrivateL1PrivateL2CacheHierarchy,
 )
 
-"""
-Usage: in root directory run
-$ make
-$ ./gem5.debug -rs amx/tb.py
-"""
+parser = argparse.ArgumentParser(description="Run one asynchronous AMX test")
+parser.add_argument(
+    "--binary",
+    type=Path,
+    default=Path("configs/amx/binaries/tile_config_shape_respect_test"),
+    help="path to the AMX test binary",
+)
+args = parser.parse_args()
 
-# Define the path to your compiled test binary containing the custom instructions
-# binary_path = Path("configs/amx/binaries/tile_load_unaligned_test")
-# binary_path = Path("configs/amx/binaries/tile_config_ordering_test")
-# binary_path = Path("configs/amx/binaries/tile_load_out_of_order_test")
-binary_path = Path("configs/amx/binaries/tile_config_shape_respect_test")
-
-
+binary_path = args.binary
 
 
 # Setup Cache and Memory
@@ -110,15 +105,11 @@ def workbegin_handler():
 
 
 def workend_handler():
-    print("\n--- End of AMX ROI ---\n")
+    print("\n--- AMX submissions complete; draining asynchronous work ---\n")
 
-    # Disable tracing once the work is done
-    # m5.debug.flags["ExecAll"].disable()
-    # m5.debug.flags["Cache"].disable()
-    # m5.debug.flags["PseudoInst"].disable()
-    m5.debug.flags["AMX"].disable()
-
-    yield True  # Yielding False tells the simulator to continue running
+    # Each test schedules its own delayed exit before quiescing. Continue here
+    # so AMX completion events run until that exit occurs.
+    yield False
 
 
 # Setup and Run Simulator

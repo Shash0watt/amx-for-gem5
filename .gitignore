@@ -41,4 +41,5 @@ typings
 .venv
 .continue
 configs/amx/implementation_plan.md
+/configs/amx/binaries/
 .agents/

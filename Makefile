@@ -15,6 +15,8 @@ SRCS_CPP = $(filter-out configs/amx/tests/tile_load_benchmark.cpp,$(ALL_CPP))
 
 TARGETS = $(patsubst configs/amx/tests/%.cpp,configs/amx/binaries/%,$(SRCS_CPP))
 
+.PHONY: all clean
+
 all: $(TARGETS)
 
 # pattern rule to compile c++ files

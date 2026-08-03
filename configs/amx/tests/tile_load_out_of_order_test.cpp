@@ -1,17 +1,18 @@
 #include <cstdint>
-#include <gem5/m5ops.h>
 #include <iostream>
 
-typedef struct
-{
-    uint8_t palette_id;
-    uint8_t start_row;
-    uint8_t reserved_0[14];
-    uint16_t colsb[16];
-    uint8_t rows[16];
-} __tilecfg;
+#include <gem5/m5ops.h>
 
-static_assert(sizeof(__tilecfg) == 64);
+struct TileConfig
+{
+    uint8_t paletteId;
+    uint8_t startRow;
+    uint8_t reserved[14];
+    uint16_t columnBytes[16];
+    uint8_t rows[16];
+};
+
+static_assert(sizeof(TileConfig) == 64);
 
 int
 main()
@@ -33,11 +34,11 @@ main()
 
     std::cout << "out-of-order tile load test" << std::endl;
 
-    alignas(64) __tilecfg config = {};
-    config.palette_id = 1;
-    config.colsb[0] = 64;
+    alignas(64) TileConfig config = {};
+    config.paletteId = 1;
+    config.columnBytes[0] = 64;
     config.rows[0] = 16;
-    config.colsb[1] = 64;
+    config.columnBytes[1] = 64;
     config.rows[1] = 16;
 
     m5_work_begin(0, 0);
@@ -54,11 +55,12 @@ main()
     // we should expect to see this load complete earlier if out of order
     // behaviour is allowed
 
-    alignas(64) __tilecfg release = {};
+    alignas(64) TileConfig release = {};
     amx_tile_loadconfig(&release);
 
-    m5_quiesce_cycle(10);
     m5_work_end(0, 0);
+    m5_exit(750);
+    m5_quiesce();
 
     std::cout << "out-of-order tile load test complete" << std::endl;
 
