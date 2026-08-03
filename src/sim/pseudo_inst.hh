@@ -44,7 +44,6 @@
 #include <gem5/asm/generic/m5ops.h>
 
 #include "base/bitfield.hh"
-#include "base/compiler.hh"
 #include "base/logging.hh"
 #include "base/trace.hh"
 #include "base/types.hh" // For Tick and Addr data types.
@@ -112,9 +111,11 @@ void triggerWorkloadEvent(ThreadContext *tc);
 void m5Hypercall(ThreadContext *tc, uint64_t hypercall_id);
 
 // for amx
-void amxLoadd(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
+void amxLoadd(ThreadContext *tc, uint64_t dest_tile, GuestAddr src_mem,
               size_t stride);
 void amxLoadConfig(ThreadContext *tc, GuestAddr config_addr);
+void amxDotProduct(ThreadContext *tc, uint64_t dest_tile, uint64_t tile_a, uint64_t tile_b);
+
 
 /**
  * Execute a decoded M5 pseudo instruction
@@ -257,6 +258,10 @@ pseudoInstWork(ThreadContext *tc, uint8_t func, uint64_t &result)
 
         case AMX_TILE_LOADCONFIG:
             invokeSimcall<ABI>(tc, amxLoadConfig);
+            return true;
+
+        case AMX_TILE_DPBF16PS:
+            invokeSimcall<ABI>(tc, amxDotProduct);
             return true;
 
         case M5OP_HYPERCALL:

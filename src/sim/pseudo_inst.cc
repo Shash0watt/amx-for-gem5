@@ -42,6 +42,7 @@
 
 #include "sim/pseudo_inst.hh"
 
+#include <cstdint>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -49,14 +50,12 @@
 #include <cerrno>
 #include <fstream>
 #include <string>
-#include <vector>
 
 #include "base/debug.hh"
 #include "base/output.hh"
 #include "cpu/base.hh"
 #include "cpu/thread_context.hh"
 #include "debug/Loader.hh"
-#include "debug/Quiesce.hh"
 #include "debug/WorkItems.hh"
 #include "dev/net/dist_iface.hh"
 #include "mem/se_translating_port_proxy.hh"
@@ -64,11 +63,8 @@
 #include "params/BaseCPU.hh"
 #include "sim/full_system.hh"
 #include "sim/process.hh"
-#include "sim/serialize.hh"
-#include "sim/sim_events.hh"
 #include "sim/sim_exit.hh"
 #include "sim/stat_control.hh"
-#include "sim/stats.hh"
 #include "sim/system.hh"
 
 #include "amx/amx_accl.hh" // amx accelerator header
@@ -633,14 +629,14 @@ m5Hypercall(ThreadContext *tc, uint64_t hypercall_id)
 
 // this forwards a tile load to the attached amx unit.
 void
-amxLoadd(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem,
+amxLoadd(ThreadContext *tc, uint64_t dest_tile, GuestAddr src_mem,
          size_t stride)
 {
     BaseCPU *cpu = tc->getCpuPtr();
     AmxAccl *accl = cpu->getAmxAccl();
 
     if (accl) {
-        accl->startAmxLoad(tc, dest_tile, src_mem, stride);
+        accl->startAmxLoad(tc, dest_tile, src_mem.addr, stride);
     } else {
         panic("amxLoadd executed without an attached AMX accelerator");
     }
@@ -654,9 +650,23 @@ amxLoadConfig(ThreadContext *tc, GuestAddr config_addr)
     AmxAccl *accl = cpu->getAmxAccl();
 
     if (accl) {
-        accl->startAmxLoadConfig(tc, config_addr.addr);
+        accl->startAmxLoadConfig(tc, config_addr.addr); 
     } else {
         panic("amxLoadConfig executed without an attached AMX accelerator");
+    }
+}
+
+void
+amxDotProduct(ThreadContext *tc, uint64_t dest_tile, uint64_t tile_a,
+               uint64_t tile_b)
+{
+    BaseCPU *cpu = tc->getCpuPtr();
+    AmxAccl *accl = cpu->getAmxAccl();
+
+    if (accl) {
+        accl->startAmxDotProduct(dest_tile, tile_a, tile_b);
+    } else {
+        panic("amxDotProduct executed without an attached AMX accelerator");
     }
 }
 

@@ -56,6 +56,38 @@ AmxAccl::startAmxLoadConfig(ThreadContext *tc, uint64_t config_address)
     tryIssue();
 }
 
+void
+AmxAccl::startAmxDotProduct(uint64_t dest_tile, uint64_t tile_a,
+                            uint64_t tile_b)
+{
+    panic_if(dest_tile >= NUM_TILES,
+             "AMX TDPBF16PS destination tile %llu is invalid",
+             static_cast<unsigned long long>(dest_tile));
+    panic_if(tile_a >= NUM_TILES,
+             "AMX TDPBF16PS source-1 tile %llu is invalid",
+             static_cast<unsigned long long>(tile_a));
+    panic_if(tile_b >= NUM_TILES,
+             "AMX TDPBF16PS source-2 tile %llu is invalid",
+             static_cast<unsigned long long>(tile_b));
+
+    // uid generation
+    const uint64_t id = nextInstructionId++;
+
+    // add to queue
+    instructionQueue.push_back(AmxInst::tileDotProduct(
+        id, static_cast<uint8_t>(dest_tile), static_cast<uint8_t>(tile_a),
+        static_cast<uint8_t>(tile_b)));
+
+     DPRINTF(AMX, "Queued TDPBF16PS %llu: TMM%llu += TMM%llu * TMM%llu\n",
+            static_cast<unsigned long long>(id),
+            static_cast<unsigned long long>(dest_tile),
+            static_cast<unsigned long long>(tile_a),
+            static_cast<unsigned long long>(tile_b));
+
+    // added.. so try and issue
+    tryIssue();
+}
+
 // -------------------------------------------------------------------------
 // Issue and high-level execution flow
 // -------------------------------------------------------------------------
@@ -97,8 +129,8 @@ AmxAccl::executeInstruction(AmxInst *instruction)
         case AmxOpcode::Load:
             executeLoadInstruction(instruction);
             return;
-        case AmxOpcode::Compute:
-            executeComputeInstruction(instruction);
+        case AmxOpcode::DotProduct:
+            executeDotProductInstruction(instruction);
             return;
         case AmxOpcode::Store:
             executeStoreInstruction(instruction);
