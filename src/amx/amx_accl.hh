@@ -55,6 +55,9 @@ class AmxAccl : public ClockedObject
     void startAmxLoad(ThreadContext *tc, uint64_t destination, uint64_t source,
                       uint64_t stride);
     void startAmxLoadConfig(ThreadContext *tc, uint64_t config_address);
+
+    void startAmxDotProduct(uint64_t dest_tile, uint64_t tile_a,
+                            uint64_t tile_b);
     void tryIssue();
 
   private:
@@ -137,7 +140,7 @@ class AmxAccl : public ClockedObject
     void executeInstruction(AmxInst *instruction);
     void executeLoadInstruction(AmxInst *instruction);
     void executeConfigInstruction(AmxInst *instruction);
-    void executeComputeInstruction(AmxInst *instruction);
+    void executeDotProductInstruction(AmxInst *instruction);
     void executeStoreInstruction(AmxInst *instruction);
     void finishLoadInstruction(AmxInst *instruction);
     void finishConfigInstruction(uint64_t instruction_id);

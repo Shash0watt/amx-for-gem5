@@ -78,7 +78,7 @@ AmxAccl::startAmxDotProduct(uint64_t dest_tile, uint64_t tile_a,
         id, static_cast<uint8_t>(dest_tile), static_cast<uint8_t>(tile_a),
         static_cast<uint8_t>(tile_b)));
 
-     DPRINTF(AMX, "Queued TDPBF16PS %llu: TMM%llu += TMM%llu * TMM%llu\n",
+    DPRINTF(AMX, "Queued TDPBF16PS %llu: TMM%llu += TMM%llu * TMM%llu\n",
             static_cast<unsigned long long>(id),
             static_cast<unsigned long long>(dest_tile),
             static_cast<unsigned long long>(tile_a),

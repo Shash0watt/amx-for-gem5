@@ -21,7 +21,7 @@ enum class Opcode
 {
     Config,
     Load,
-    Compute,
+    DotProduct,
     Store
 };
 
@@ -48,6 +48,9 @@ struct Instruction
                                 size_t stride);
     static Instruction tileConfig(uint64_t id, ThreadContext *tc,
                                   uint64_t address);
+
+    static Instruction tileDotProduct(uint64_t id, uint8_t destination,
+                                      uint8_t source1, uint8_t source2);
 
     bool readsTile(int tile) const;
     bool writesTile(int tile) const;

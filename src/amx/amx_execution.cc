@@ -221,19 +221,20 @@ AmxAccl::commitTileConfig(const amx::TileConfig &config)
 }
 
 // -------------------------------------------------------------------------
-// Compute and store placeholders
+// Dot-product and store placeholders
 // -------------------------------------------------------------------------
 
 void
-AmxAccl::executeComputeInstruction(AmxInst *instruction)
+AmxAccl::executeDotProductInstruction(AmxInst *instruction)
 {
-    panic_if(!tilesConfigured, "AMX compute issued before tile configuration");
+    panic_if(!tilesConfigured,
+             "AMX dot product issued before tile configuration");
     panic_if(
         instruction->destination < 0 ||
             instruction->destination >= NUM_TILES ||
             instruction->source1 < -1 || instruction->source1 >= NUM_TILES ||
             instruction->source2 < -1 || instruction->source2 >= NUM_TILES,
-        "AMX compute has an invalid tile operand");
+        "AMX dot product has an invalid tile operand");
 
     instruction->state = AmxInst::State::Executing;
     tileScoreboard[instruction->destination].writeActive = true;
@@ -246,7 +247,7 @@ AmxAccl::executeComputeInstruction(AmxInst *instruction)
         tileScoreboard[instruction->source2].readerCount++;
     }
 
-    // TODO: implement compute execution and completion.
+    // TODO: implement dot-product execution and completion.
 }
 
 void

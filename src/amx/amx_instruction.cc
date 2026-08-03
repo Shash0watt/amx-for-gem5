@@ -33,10 +33,18 @@ Instruction::tileConfig(uint64_t id, ThreadContext *tc, uint64_t address)
     return Instruction(id, Opcode::Config, -1, -1, -1, address, 0, tc);
 }
 
+Instruction
+Instruction::tileDotProduct(uint64_t id, uint8_t destination,
+                            uint8_t source1, uint8_t source2)
+{
+    return Instruction(id, Opcode::DotProduct, destination, source1, source2,
+                       0, 0, nullptr);
+}
+
 bool
 Instruction::readsTile(int tile) const
 {
-    if (opcode == Opcode::Compute) {
+    if (opcode == Opcode::DotProduct) {
         return source1 == tile || source2 == tile || destination == tile;
     }
 
@@ -46,7 +54,7 @@ Instruction::readsTile(int tile) const
 bool
 Instruction::writesTile(int tile) const
 {
-    return (opcode == Opcode::Load || opcode == Opcode::Compute) &&
+    return (opcode == Opcode::Load || opcode == Opcode::DotProduct) &&
            destination == tile;
 }
 

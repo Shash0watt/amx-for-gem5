@@ -49,7 +49,7 @@ configuration representations used by execution and memory handling.
 | `amx_sim_object.cc` | Constructs the SimObject, connects it to the CPU, exposes its port, and handles memory-port callbacks. |
 | `amx_instruction.hh` / `amx_instruction.cc` | Define queued instructions, their lifecycle and failure state, factory functions, and tile read/write dependency checks. |
 | `amx_scheduler.cc` | Searches the instruction queue, applies configuration barriers, checks active and older-instruction hazards, and removes completed instructions. |
-| `amx_execution.cc` | Implements tile-load and tile-configuration behavior, completion, configuration commit, scoreboard updates, and the compute/store placeholders. |
+| `amx_execution.cc` | Implements tile-load and tile-configuration behavior, completion, configuration commit, scoreboard updates, and the dot-product/store placeholders. |
 | `amx_memory.cc` | Splits reads at cache-line boundaries, performs address translation, sends timing requests, routes response bytes, and detects memory-operation completion. |
 | `amx_tile.hh` / `amx_tile.cc` | Define tile/configuration data, decode and validate configurations, clear tile state, and format tile contents for debug traces. |
 | `amxXbar/` | Contains the Python cache-hierarchy configuration used to connect AMX memory traffic. It is separate from the C++ execution model. |
@@ -115,7 +115,7 @@ configuration representations used by execution and memory handling.
 
 When adding an opcode, its instruction representation, dependency behavior,
 execution path, completion path, and scoreboard effects should be considered
-together. Compute and store currently have scheduling placeholders but do not
+together. Dot product and store currently have scheduling placeholders but do not
 yet implement functional completion.
 
 Use gem5's `AMX` debug flag to see queueing, memory, configuration, and tile
