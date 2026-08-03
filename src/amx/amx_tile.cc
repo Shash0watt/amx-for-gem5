@@ -208,5 +208,39 @@ traceInt32Tile(const TileConfig &config, const TileRegisterFile &tiles,
     DPRINTF(AMX, "%s\n", stream.str().c_str());
 }
 
+void
+traceFloat32Tile(const TileConfig &config, const TileRegisterFile &tiles,
+                 uint8_t tile_idx)
+{
+    panic_if(tile_idx >= NumTiles, "AMX printer: tile index %d out of bounds!",
+             tile_idx);
+
+    const uint16_t active_rows = config.rows[tile_idx];
+    const uint16_t active_columns =
+        config.columnBytes[tile_idx] / sizeof(float);
+
+    std::ostringstream stream;
+    appendTileHeader(stream, tile_idx, active_rows, active_columns,
+                     "Column FP32s");
+
+    for (uint8_t row = 0; row < active_rows; ++row) {
+        appendRowLabel(stream, row);
+        for (uint16_t column = 0; column < active_columns; ++column) {
+            float value = 0.0F;
+            std::memcpy(&value,
+                        &tiles[tile_idx].data[row][column * sizeof(float)],
+                        sizeof(value));
+            stream << std::setw(10) << std::setfill(' ') << value << ' ';
+            if ((column + 1) % 4 == 0 && column + 1 < active_columns) {
+                stream << "| ";
+            }
+        }
+        stream << '\n';
+    }
+    stream << TileBorder;
+
+    DPRINTF(AMX, "%s\n", stream.str().c_str());
+}
+
 } // namespace amx
 } // namespace gem5

@@ -51,6 +51,8 @@ void traceInt8Tile(const TileConfig &config, const TileRegisterFile &tiles,
                    uint8_t tile_idx);
 void traceInt32Tile(const TileConfig &config, const TileRegisterFile &tiles,
                     uint8_t tile_idx);
+void traceFloat32Tile(const TileConfig &config, const TileRegisterFile &tiles,
+                      uint8_t tile_idx);
 
 } // namespace amx
 } // namespace gem5
