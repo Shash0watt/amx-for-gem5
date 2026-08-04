@@ -116,6 +116,8 @@ void amxLoadd(ThreadContext *tc, uint64_t dest_tile, GuestAddr src_mem,
 void amxLoadConfig(ThreadContext *tc, GuestAddr config_addr);
 void amxDotProduct(ThreadContext *tc, uint64_t dest_tile, uint64_t tile_a, uint64_t tile_b);
 void amxTileZero(ThreadContext *tc, uint64_t dest_tile);
+void amxTileStore(ThreadContext *tc, uint64_t src_tile, GuestAddr base,
+                  size_t stride);
 
 
 /**
@@ -267,6 +269,10 @@ pseudoInstWork(ThreadContext *tc, uint8_t func, uint64_t &result)
 
         case AMX_TILE_ZERO:
             invokeSimcall<ABI>(tc, amxTileZero);
+            return true;
+
+        case AMX_TILE_STORED:
+            invokeSimcall<ABI>(tc, amxTileStore);
             return true;
 
         case M5OP_HYPERCALL:

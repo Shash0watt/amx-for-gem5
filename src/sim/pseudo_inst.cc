@@ -683,6 +683,21 @@ amxTileZero(ThreadContext *tc, uint64_t dest_tile)
     }
 }
 
+// this forwards a tile store to the attached amx unit.
+void
+amxTileStore(ThreadContext *tc, uint64_t src_tile, GuestAddr base,
+             size_t stride)
+{
+    BaseCPU *cpu = tc->getCpuPtr();
+    AmxAccl *accl = cpu->getAmxAccl();
+
+    if (accl) {
+        accl->queueAmxStore(tc, src_tile, base.addr, stride);
+    } else {
+        panic("amxTileStore executed without an attached AMX accelerator");
+    }
+}
+
 // void
 // amxLoadd(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem, size_t
 // stride)

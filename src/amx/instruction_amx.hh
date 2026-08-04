@@ -47,6 +47,9 @@ struct Instruction
     static Instruction tileLoad(uint64_t id, ThreadContext *tc,
                                 uint8_t destination, uint64_t address,
                                 size_t stride);
+    static Instruction tileStore(uint64_t id, ThreadContext *tc,
+                                 uint8_t source, uint64_t address,
+                                 size_t stride);
     static Instruction tileConfig(uint64_t id, ThreadContext *tc,
                                   uint64_t address);
 

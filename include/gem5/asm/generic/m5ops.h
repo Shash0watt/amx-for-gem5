@@ -83,6 +83,7 @@
 #define AMX_TILE_LOADCONFIG 0x64
 #define AMX_TILE_DPBF16PS 0x65
 #define AMX_TILE_ZERO 0x66
+#define AMX_TILE_STORED 0x67
 
 #define M5OP_WORKLOAD 0x70
 
@@ -119,7 +120,8 @@
     M5OP(amx_tile_loadd, AMX_TILE_LOADD)                                      \
     M5OP(amx_tile_loadconfig, AMX_TILE_LOADCONFIG)                            \
     M5OP(amx_tile_dpbf16ps, AMX_TILE_DPBF16PS)                                \
-    M5OP(amx_tile_zero, AMX_TILE_ZERO)
+    M5OP(amx_tile_zero, AMX_TILE_ZERO)                                        \
+    M5OP(amx_tile_stored, AMX_TILE_STORED)
 
 #define M5OP_MERGE_TOKENS_I(a, b) a##b
 #define M5OP_MERGE_TOKENS(a, b) M5OP_MERGE_TOKENS_I(a, b)

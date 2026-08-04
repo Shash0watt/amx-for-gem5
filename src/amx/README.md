@@ -31,8 +31,8 @@ pseudo-instruction
  start opcode work          wait for fixed latency
         |
         v
- amx_memory.cc                    (loads)
- translate/cache
+ amx_memory.cc              (loads and stores)
+ translate/cache, copy data
         |                          |
         +------------+-------------+
                      v
@@ -40,10 +40,10 @@ pseudo-instruction
                    remove it from the queue, and issue again
 ```
 
-The memory and latency branches overlap. In particular, a tile load starts
-both branches when it issues and joins them in `completeLoadIfReady()`. Finishing
-only one branch is not enough to complete the load. Dot product uses only the
-fixed-latency branch because it does not access memory.
+The memory and latency branches overlap. Tile loads and stores start both
+branches when they issue and join them in their `complete*IfReady()` paths.
+Finishing only one branch is not enough to complete either operation. Dot
+product uses only the fixed-latency branch because it does not access memory.
 
 Configuration is the exception to this generic path: it is not assigned an
 issue resource or a generic latency deadline. After its memory read drains, a
@@ -135,8 +135,8 @@ read drains.
 | `resource_amx.hh` / `resource_amx.cc` | Track the next issue cycle and in-flight count for the load, dot-product, zero, and store pipelines. |
 | `dp_math_amx.hh` | Header-only BF16 dot-product operand validation and calculation helpers. |
 | `amx_latency.cc` | Schedules fixed instruction-latency events and sends elapsed instructions to their completion paths. |
-| `amx_execution.cc` | Implements tile load, tile configuration, TILEZERO, BF16 dot product, scoreboard updates, and opcode completion. Store remains an incomplete placeholder. |
-| `amx_memory.cc` | Splits reads at cache-line boundaries, performs address translation, sends timing requests, routes response bytes, and detects memory-operation completion. |
+| `amx_execution.cc` | Implements tile load/store, tile configuration, TILEZERO, BF16 dot product, scoreboard updates, and opcode completion. |
+| `amx_memory.cc` | Splits reads and writes at cache-line boundaries, performs address translation, sends timing requests, routes load-response bytes, and detects memory-operation completion. |
 | `tile_amx.hh` / `tile_amx.cc` | Define tile/configuration data, decode and validate configurations, clear tile state, and format tile contents for debug traces. |
 | `amxXbar/` | Contains the Python cache-hierarchy configuration used to connect AMX memory traffic. It is separate from the C++ execution model. |
 | `notes/` | Contains design research and implementation notes; it is not compiled into the simulator. |
@@ -168,6 +168,26 @@ read drains.
 4. `finishConfigInstruction()` decodes and validates the bytes after memory and
    minimum configuration latency have completed.
 5. `commitTileConfig()` installs the new layout and clears all tile data.
+
+### Tile store
+
+1. `queueAmxStore()` creates a store whose source tile is a read dependency.
+2. The scheduler waits for older writers to that tile, then the store reserves
+   a tile-reader scoreboard entry and the store pipeline.
+3. `executeStoreInstruction()` dispatches configured rows beginning at
+   `startRow`, using the supplied base address and stride.
+4. `amx_memory.cc` splits each row at cache-line boundaries, translates with
+   write access, copies tile bytes into write packets, and waits for responses.
+5. The store completes only after both all memory activity and its configured
+   minimum latency finish. Successful completion clears `startRow`, releases
+   the tile reader and store resource, removes the instruction, and retries
+   queued work.
+
+A configuration queued after a store is a useful completion barrier: it cannot
+commit while the store still holds its source-tile reader reservation. Tests
+that need to inspect stored bytes can put a verification configuration and
+tile reload after that barrier instead of assuming pseudo-op calls synchronize
+the guest CPU with the accelerator.
 
 ### BF16 dot product
 
@@ -294,6 +314,8 @@ different pipeline. `AmxAccl.py` contains the default timing values.
 - Pipeline issue restrictions do not block independent operations that use a
   different resource.
 - Loads complete only after both their memory work and fixed latency finish.
+- Stores complete only after both their write responses and fixed latency
+  finish, and write exactly the configured bytes rather than whole cache lines.
 - Memory completion is allowed only after dispatch is complete and both the
   outstanding-translation and outstanding-request counters reach zero. This is
   necessary because translation callbacks can occur immediately.
@@ -324,9 +346,8 @@ different pipeline. `AmxAccl.py` contains the default timing values.
 
 When adding an opcode, its instruction representation, dependency behavior,
 execution path, completion path, and scoreboard effects should be considered
-together. Tile configuration, tile load, TILEZERO, and BF16 dot product have
-functional completion paths. Store currently has only scheduling and timing
-scaffolding; it does not yet complete functionally.
+together. Tile configuration, tile load/store, TILEZERO, and BF16 dot product
+all have functional completion paths.
 
 Use gem5's `AMX` debug flag to see queueing, memory, configuration, and tile
 trace messages from this component.

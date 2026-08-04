@@ -28,6 +28,14 @@ Instruction::tileLoad(uint64_t id, ThreadContext *tc, uint8_t destination,
 }
 
 Instruction
+Instruction::tileStore(uint64_t id, ThreadContext *tc, uint8_t source,
+                       uint64_t address, size_t stride)
+{
+    return Instruction(id, Opcode::Store, -1, source, -1, address, stride,
+                       tc);
+}
+
+Instruction
 Instruction::tileConfig(uint64_t id, ThreadContext *tc, uint64_t address)
 {
     return Instruction(id, Opcode::Config, -1, -1, -1, address, 0, tc);
