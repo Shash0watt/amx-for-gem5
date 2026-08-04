@@ -72,6 +72,7 @@ void m5_hypercall(uint64_t hypercall_id);
 void amx_tile_loadd(uint64_t dest_tile, const void *src_mem, size_t stride);
 void amx_tile_loadconfig(const void *mem_addr);
 void amx_tile_dpbf16ps (uint64_t dest_tile, uint64_t tile_a, uint64_t tile_b);
+void amx_tile_zero(uint64_t dest_tile);
 
 /*
  * Send a very generic poke to the workload so it can do something. It's up to

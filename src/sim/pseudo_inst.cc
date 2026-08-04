@@ -670,6 +670,19 @@ amxDotProduct(ThreadContext *tc, uint64_t dest_tile, uint64_t tile_a,
     }
 }
 
+void
+amxTileZero(ThreadContext *tc, uint64_t dest_tile)
+{
+    BaseCPU *cpu = tc->getCpuPtr();
+    AmxAccl *accl = cpu->getAmxAccl();
+
+    if (accl) {
+        accl->queueAmxZero(dest_tile);
+    } else {
+        panic("amxTileZero executed without an attached AMX accelerator");
+    }
+}
+
 // void
 // amxLoadd(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem, size_t
 // stride)
