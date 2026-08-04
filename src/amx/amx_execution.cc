@@ -19,13 +19,13 @@ tileRowAddress(const amx::Instruction &instruction, uint8_t row,
         panic_if(instruction.stride > (std::numeric_limits<uint64_t>::max() -
                                        instruction.address) /
                                           row,
-                 "AMX tile load row address wraps around");
+                 "AMX tile memory row address wraps around");
     }
 
     const uint64_t address = instruction.address + row * instruction.stride;
     panic_if(row_bytes != 0 && address > std::numeric_limits<uint64_t>::max() -
                                              (row_bytes - 1),
-             "AMX tile load row crosses the address limit");
+             "AMX tile memory row crosses the address limit");
     return address;
 }
 
@@ -52,6 +52,33 @@ reportLoadFailure(const amx::Instruction &instruction)
     }
 
     panic("AMX tile load has an unknown failure state");
+}
+
+void
+reportStoreFailure(const amx::Instruction &instruction)
+{
+    switch (instruction.failure) {
+        case amx::Instruction::Failure::Translation:
+            panic("AMX: Tile store %llu failed address translation: %s. "
+                  "Asynchronous fault delivery is not implemented.",
+                  static_cast<unsigned long long>(instruction.id),
+                  instruction.fault->name());
+        case amx::Instruction::Failure::MemoryError:
+            panic("AMX: Tile store %llu received an error response.",
+                  static_cast<unsigned long long>(instruction.id));
+        case amx::Instruction::Failure::MissingData:
+            panic("AMX: Tile store %llu has an unexpected missing-data "
+                  "failure.",
+                  static_cast<unsigned long long>(instruction.id));
+        case amx::Instruction::Failure::InvalidConfig:
+            panic("AMX: Tile store %llu has an internal configuration "
+                  "failure.",
+                  static_cast<unsigned long long>(instruction.id));
+        case amx::Instruction::Failure::None:
+            return;
+    }
+
+    panic("AMX tile store has an unknown failure state");
 }
 
 void
@@ -395,16 +422,94 @@ AmxAccl::finishZeroInstruction(uint64_t instruction_id)
 void
 AmxAccl::executeStoreInstruction(AmxInst *instruction)
 {
+    panic_if(!instruction || instruction->opcode != AmxOpcode::Store,
+             "AMX tile store execution received the wrong instruction");
     panic_if(!tilesConfigured, "AMX store issued before tile configuration");
-    panic_if(instruction->source1 < -1 || instruction->source1 >= NUM_TILES,
-             "AMX store has an invalid tile operand");
+    panic_if(instruction->source1 < 0 || instruction->source1 >= NUM_TILES,
+             "AMX store has an invalid tile operand %d",
+             instruction->source1);
+    panic_if(!instruction->threadContext,
+             "AMX tile store has no thread context");
 
-    instruction->state = AmxInst::State::Executing;
-    if (instruction->source1 != -1) {
-        tileScoreboard[instruction->source1].readerCount++;
+    const uint8_t tile = instruction->source1;
+    const uint16_t rows = currentConfig.rows[tile];
+    const uint16_t row_bytes = currentConfig.columnBytes[tile];
+    const uint8_t start_row = currentConfig.startRow;
+    panic_if(rows > MAX_ROWS || row_bytes > MAX_COLS_BYTES,
+             "AMX tile store source TMM%u has invalid configured dimensions",
+             tile);
+
+    DPRINTF(AMX,
+            "Executing tile store %llu from TMM%u (%u rows, %u bytes/row, "
+            "start row %u)\n",
+            static_cast<unsigned long long>(instruction->id), tile, rows,
+            row_bytes, start_row);
+
+    beginMemoryInstruction(instruction);
+    panic_if(tileScoreboard[tile].writeActive,
+             "AMX tile store issued with an active tile writer");
+    ++tileScoreboard[tile].readerCount;
+
+    for (uint8_t row = start_row;
+         row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
+        dispatchMemoryWrite(instruction,
+                            tileRowAddress(*instruction, row, row_bytes),
+                            row_bytes, tile, row);
     }
 
-    // TODO: implement store execution and completion.
+    finishMemoryDispatch(instruction);
+}
+
+void
+AmxAccl::completeStoreIfReady(uint64_t instruction_id)
+{
+    AmxInst *instruction = findInstruction(instruction_id);
+    panic_if(!instruction || instruction->opcode != AmxOpcode::Store,
+             "AMX store completion checked the wrong instruction");
+
+    if (!instruction->memoryComplete || !instruction->latencyElapsed) {
+        return;
+    }
+
+    completeStoreInstruction(instruction);
+}
+
+void
+AmxAccl::completeStoreInstruction(AmxInst *instruction)
+{
+    panic_if(!instruction || instruction->opcode != AmxOpcode::Store,
+             "AMX store completion received the wrong instruction");
+    panic_if(!instruction->translationDispatchComplete ||
+                 instruction->outstandingTranslations != 0 ||
+                 instruction->outstandingRequests != 0,
+             "AMX tile store completed with outstanding memory work");
+    panic_if(!instruction->memoryComplete || !instruction->latencyElapsed,
+             "AMX tile store completed before memory and latency elapsed");
+
+    const uint8_t tile = instruction->source1;
+    panic_if(tile >= NUM_TILES,
+             "AMX tile store completion has invalid source tile %u", tile);
+    panic_if(tileScoreboard[tile].readerCount <= 0,
+             "AMX tile store completed without an active reader");
+
+    --tileScoreboard[tile].readerCount;
+    instruction->state = AmxInst::State::Completed;
+    resourceTracker.complete(AmxResource::TileStore);
+
+    // Faults are reported only after every translation and request has
+    // drained and all model resources have been released. Only a successful
+    // architectural completion resets START_ROW.
+    if (instruction->failure == AmxInst::Failure::None) {
+        currentConfig.startRow = 0;
+    }
+    reportStoreFailure(*instruction);
+
+    DPRINTF(AMX, "Completed tile store %llu from TMM%u\n",
+            static_cast<unsigned long long>(instruction->id), tile);
+
+    const uint64_t completed_id = instruction->id;
+    eraseInstruction(completed_id);
+    tryIssue();
 }
 
 } // namespace gem5

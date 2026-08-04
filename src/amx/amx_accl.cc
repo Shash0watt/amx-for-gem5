@@ -39,6 +39,26 @@ AmxAccl::queueAmxLoad(ThreadContext *tc, uint64_t destination, uint64_t source,
 }
 
 void
+AmxAccl::queueAmxStore(ThreadContext *tc, uint64_t source, uint64_t address,
+                       uint64_t stride)
+{
+    panic_if(!tc, "AMX: Tile store requires a valid thread context");
+    panic_if(source >= NUM_TILES,
+             "AMX: Source tile %llu exceeds max tiles!",
+             static_cast<unsigned long long>(source));
+
+    const uint64_t id = nextInstructionId++;
+    instructionQueue.push_back(AmxInst::tileStore(
+        id, tc, static_cast<uint8_t>(source), address, stride));
+
+    DPRINTF(AMX, "Queued tile store %llu from TMM%llu\n",
+            static_cast<unsigned long long>(id),
+            static_cast<unsigned long long>(source));
+
+    tryIssue();
+}
+
+void
 AmxAccl::queueAmxLoadConfig(ThreadContext *tc, uint64_t config_address)
 {
     panic_if(!tc, "AMX: Tile configuration requires a thread context");

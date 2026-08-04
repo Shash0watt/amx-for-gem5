@@ -31,3 +31,21 @@ build/X86/gem5.opt configs/amx/tb.py \ --binary configs/amx/binaries/<test_name>
   leaving `(2 * 4) + (3 * 5)` rather than 24.
 - The release configuration should commit after the zero and dot product
   complete.
+
+### tile_store_timing_test
+
+- The 16-byte-by-4-row load into TMM0 must complete before the dependent store
+  can issue because the load writes the tile and the store reads it.
+- The store writes four 16-byte payloads at a 32-byte stride. Its first row
+  begins at cache-line offset 60, so that row is split across two memory
+  requests without modifying adjacent bytes.
+- The verification configuration is a full queue barrier. It must not commit
+  until every store response has drained, the store latency has elapsed, and
+  the store has released its TMM0 reader reservation.
+- The wider verification reload traces 36 bytes per row beginning four bytes
+  before each stored row. Each row should contain four `0x5a` guard bytes,
+  sixteen source bytes, and sixteen untouched `0x5a` gap bytes.
+- The source payload for row `r` is the byte sequence starting at
+  `0x10 * (r + 1)` and increasing by one through the row.
+- The release configuration should commit only after the verification load
+  completes.

@@ -94,7 +94,7 @@ AmxAccl::instructionLatencyElapsed(uint64_t instruction_id)
             finishZeroInstruction(instruction_id);
             return;
         case AmxOpcode::Store:
-            // Store does not have a functional completion path yet.
+            completeStoreIfReady(instruction_id);
             return;
         case AmxOpcode::Config:
             break;

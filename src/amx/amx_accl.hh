@@ -57,6 +57,8 @@ class AmxAccl : public ClockedObject
     // path.
     void queueAmxLoad(ThreadContext *tc, uint64_t destination, uint64_t source,
                       uint64_t stride);
+    void queueAmxStore(ThreadContext *tc, uint64_t source, uint64_t address,
+                       uint64_t stride);
     void queueAmxLoadConfig(ThreadContext *tc, uint64_t config_address);
 
     void queueAmxDotProduct(uint64_t dest_tile, uint64_t tile_a,
@@ -92,32 +94,39 @@ class AmxAccl : public ClockedObject
         TileConfig
     };
 
-    struct MemoryReadChunk
+    enum class MemoryAccess
     {
+        Read,
+        Write
+    };
+
+    struct MemoryChunk
+    {
+        MemoryAccess access;
         MemoryTarget target;
         uint8_t tile;
         uint8_t row;
-        size_t sourceOffset;
-        size_t destinationOffset;
-        size_t bytesToCopy;
+        size_t packetOffset;
+        size_t bufferOffset;
+        size_t bytes;
     };
 
     struct AmxSenderState : public Packet::SenderState
     {
         AmxSenderState(uint64_t instruction_id,
-                       const MemoryReadChunk &read_chunk)
-            : instructionId(instruction_id), readChunk(read_chunk)
+                       const MemoryChunk &memory_chunk)
+            : instructionId(instruction_id), memoryChunk(memory_chunk)
         {}
 
         uint64_t instructionId;
-        MemoryReadChunk readChunk;
+        MemoryChunk memoryChunk;
     };
 
     class AmxTranslation : public BaseMMU::Translation
     {
       public:
         AmxTranslation(AmxAccl &owner, uint64_t instruction_id,
-                       const MemoryReadChunk &read_chunk);
+                       const MemoryChunk &memory_chunk);
 
         void markDelayed() override;
         void finish(const Fault &fault, const RequestPtr &request,
@@ -126,7 +135,7 @@ class AmxAccl : public ClockedObject
       private:
         AmxAccl &owner;
         uint64_t instructionId;
-        MemoryReadChunk readChunk;
+        MemoryChunk memoryChunk;
     };
 
     // ---------------------------------------------------------------------
@@ -156,6 +165,8 @@ class AmxAccl : public ClockedObject
     void executeStoreInstruction(AmxInst *instruction);
     void completeLoadIfReady(uint64_t instruction_id);
     void completeLoadInstruction(AmxInst *instruction);
+    void completeStoreIfReady(uint64_t instruction_id);
+    void completeStoreInstruction(AmxInst *instruction);
     void finishDotProductInstruction(uint64_t instruction_id);
     void finishZeroInstruction(uint64_t instruction_id);
     void finishConfigInstruction(uint64_t instruction_id);
@@ -178,17 +189,21 @@ class AmxAccl : public ClockedObject
     void dispatchMemoryRead(AmxInst *instruction, uint64_t virtual_address,
                             size_t bytes, MemoryTarget target,
                             uint8_t tile = 0, uint8_t row = 0);
-    void dispatchMemoryReadChunk(AmxInst *instruction,
-                                 uint64_t virtual_address, size_t request_size,
-                                 const MemoryReadChunk &read_chunk);
+    void dispatchMemoryWrite(AmxInst *instruction, uint64_t virtual_address,
+                             size_t bytes, uint8_t tile, uint8_t row);
+    void dispatchMemoryChunk(AmxInst *instruction, uint64_t virtual_address,
+                             size_t request_size,
+                             const MemoryChunk &memory_chunk);
     void finishTranslation(uint64_t instruction_id,
-                           const MemoryReadChunk &read_chunk,
+                           const MemoryChunk &memory_chunk,
                            const Fault &fault, const RequestPtr &request);
     void handleMemoryResponse(PacketPtr packet);
-    void validateMemoryReadOwner(const AmxInst &instruction,
-                                 const MemoryReadChunk &read_chunk) const;
+    void validateMemoryOwner(const AmxInst &instruction,
+                             const MemoryChunk &memory_chunk) const;
     void *memoryDestination(AmxInst &instruction,
-                            const MemoryReadChunk &read_chunk);
+                            const MemoryChunk &memory_chunk);
+    const void *memorySource(const AmxInst &instruction,
+                             const MemoryChunk &memory_chunk) const;
     void completeMemoryStageIfReady(uint64_t instruction_id);
 
     // ---------------------------------------------------------------------

@@ -14,12 +14,12 @@ namespace gem5
 
 // at a high level a instruction follows this path
 // 1. mark the instrcution as exectuing (reads, writes & pending completion)
-// 2. split each read into a cacheline size request
+// 2. split each access at cache-line boundaries
 // (becaause you can only make one request per line)
 // 3. address translation on the vaddr
 // 4. send the request through the gem5 system
 // ---
-// 5. gem5 callback -> copy the retured data with out callback function
+// 5. gem5 callback -> copy returned read data or retire a completed write
 // 6. mark the instruction as completed
 
 // -------------------------------------------------------------------------
@@ -86,7 +86,7 @@ AmxAccl::dispatchMemoryRead(AmxInst *instruction, uint64_t virtual_address,
     while (remaining != 0 && instruction->failure == AmxInst::Failure::None) {
         // Get the starting address of the containing cache line.
         // The memoryrequest fetches the whole line so we need to keep track of
-        // sourceOffset/bytesToCopy to know which portion of the returned cache
+        // packetOffset/bytes to know which portion of the returned cache
         // line belongs to our AMX load
         const uint64_t line_address =
             current_address - (current_address % cache_line_size);
@@ -96,9 +96,9 @@ AmxAccl::dispatchMemoryRead(AmxInst *instruction, uint64_t virtual_address,
 
         // This is the instruction along with all the metadata with this
         // cache-line operation needed by other stages
-        dispatchMemoryReadChunk(instruction, line_address, cache_line_size,
-                                {target, tile, row, source_offset,
-                                 destination_offset, chunk_bytes});
+        dispatchMemoryChunk(instruction, line_address, cache_line_size,
+                            {MemoryAccess::Read, target, tile, row,
+                             source_offset, destination_offset, chunk_bytes});
 
         destination_offset += chunk_bytes;
         remaining -= chunk_bytes;
@@ -109,18 +109,59 @@ AmxAccl::dispatchMemoryRead(AmxInst *instruction, uint64_t virtual_address,
 }
 
 void
-AmxAccl::dispatchMemoryReadChunk(AmxInst *instruction,
-                                 uint64_t virtual_address, size_t request_size,
-                                 const MemoryReadChunk &read_chunk)
+AmxAccl::dispatchMemoryWrite(AmxInst *instruction, uint64_t virtual_address,
+                             size_t bytes, uint8_t tile, uint8_t row)
+{
+    panic_if(bytes != 0 &&
+                 virtual_address >
+                     std::numeric_limits<uint64_t>::max() - (bytes - 1),
+             "AMX memory write crosses the address limit");
+
+    const size_t cache_line_size = cpu->cacheLineSize();
+    panic_if(cache_line_size == 0, "AMX requires a nonzero cache line size");
+
+    uint64_t current_address = virtual_address;
+    size_t source_offset = 0;
+    size_t remaining = bytes;
+
+    while (remaining != 0 && instruction->failure == AmxInst::Failure::None) {
+        const size_t line_offset = current_address % cache_line_size;
+        const size_t chunk_bytes =
+            std::min(remaining, cache_line_size - line_offset);
+
+        // Writes cover only the bytes architecturally selected by colsb.
+        // Requesting an entire line here would overwrite adjacent guest data.
+        dispatchMemoryChunk(instruction, current_address, chunk_bytes,
+                            {MemoryAccess::Write, MemoryTarget::TileRow,
+                             tile, row, 0, source_offset, chunk_bytes});
+
+        source_offset += chunk_bytes;
+        remaining -= chunk_bytes;
+        if (remaining != 0) {
+            current_address += chunk_bytes;
+        }
+    }
+}
+
+void
+AmxAccl::dispatchMemoryChunk(AmxInst *instruction,
+                             uint64_t virtual_address, size_t request_size,
+                             const MemoryChunk &memory_chunk)
 {
     // These are internal invariants.  Violating them indicates an AMX model
     // bug rather than a guest-program error, so gem5 should stop immediately.
     panic_if(!instruction || !instruction->threadContext,
-             "AMX read has no thread context");
-    panic_if(read_chunk.sourceOffset > request_size ||
-                 read_chunk.bytesToCopy >
-                     request_size - read_chunk.sourceOffset,
-             "AMX memory read chunk exceeds its request");
+             "AMX memory access has no thread context");
+    panic_if(memory_chunk.packetOffset > request_size ||
+                 memory_chunk.bytes >
+                     request_size - memory_chunk.packetOffset,
+             "AMX memory chunk exceeds its request");
+    panic_if(memory_chunk.access == MemoryAccess::Write &&
+                 (memory_chunk.packetOffset != 0 ||
+                  memory_chunk.bytes != request_size),
+             "AMX write chunk must exactly cover its request");
+
+    validateMemoryOwner(*instruction, memory_chunk);
 
     ThreadContext *tc = instruction->threadContext;
 
@@ -135,12 +176,15 @@ AmxAccl::dispatchMemoryReadChunk(AmxInst *instruction,
     instruction->outstandingTranslations++;
 
     // we make a translation request that has our custom callback
-    auto *translation = new AmxTranslation(*this, instruction->id, read_chunk);
+    auto *translation =
+        new AmxTranslation(*this, instruction->id, memory_chunk);
 
     // to perform a timing adadress translation, get the MMU from the thread
     // context and use it's translate timing function so that we can get
     // accurate page table walks and etc
-    tc->getMMUPtr()->translateTiming(request, tc, translation, BaseMMU::Read);
+    const BaseMMU::Mode mode = memory_chunk.access == MemoryAccess::Read ?
+        BaseMMU::Read : BaseMMU::Write;
+    tc->getMMUPtr()->translateTiming(request, tc, translation, mode);
 }
 
 // -------------------------------------------------------------------------
@@ -151,8 +195,8 @@ AmxAccl::dispatchMemoryReadChunk(AmxInst *instruction,
 // finishes; creating the callback does not itself start translation.
 AmxAccl::AmxTranslation::AmxTranslation(AmxAccl &owner,
                                         uint64_t instruction_id,
-                                        const MemoryReadChunk &read_chunk)
-    : owner(owner), instructionId(instruction_id), readChunk(read_chunk)
+                                        const MemoryChunk &memory_chunk)
+    : owner(owner), instructionId(instruction_id), memoryChunk(memory_chunk)
 {}
 
 void
@@ -172,17 +216,20 @@ AmxAccl::AmxTranslation::finish(const Fault &fault, const RequestPtr &request,
                                 ThreadContext *, BaseMMU::Mode mode)
 {
     // This is out custom callback that we sent with the translation request
-    panic_if(mode != BaseMMU::Read,
-             "AMX load translation completed with a non-read mode");
+    const BaseMMU::Mode expected_mode =
+        memoryChunk.access == MemoryAccess::Read ?
+            BaseMMU::Read : BaseMMU::Write;
+    panic_if(mode != expected_mode,
+             "AMX memory translation completed with the wrong mode");
 
-    owner.finishTranslation(instructionId, readChunk, fault, request);
+    owner.finishTranslation(instructionId, memoryChunk, fault, request);
 
     delete this;
 }
 
 void
 AmxAccl::finishTranslation(uint64_t instruction_id,
-                           const MemoryReadChunk &read_chunk,
+                           const MemoryChunk &memory_chunk,
                            const Fault &fault, const RequestPtr &request)
 {
     // We can look the instruction up again instead of carrying a pointer
@@ -195,7 +242,7 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
     panic_if(instruction->outstandingTranslations == 0,
              "AMX instruction received too many translation callbacks");
 
-    validateMemoryReadOwner(*instruction, read_chunk);
+    validateMemoryOwner(*instruction, memory_chunk);
 
     // Our translation is done, so we can mark it as complete
     instruction->outstandingTranslations--;
@@ -229,15 +276,24 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
     //  Request describes the access and its translated addresses; the Packet
     //  adds the command, response data buffer, and routing/ownership state
     //  used while the access travels through the timing memory system.
-    PacketPtr packet = new Packet(request, MemCmd::ReadReq);
+    const MemCmd command = memory_chunk.access == MemoryAccess::Read ?
+        MemCmd::ReadReq : MemCmd::WriteReq;
+    PacketPtr packet = new Packet(request, command);
 
-    // A read response needs storage in which the cache/memory can return the
-    // line.  Packet::allocate() allocates that packet-owned data buffer.
+    // Reads need a return buffer. Writes also use packet-owned storage so the
+    // tile's bytes remain valid independently of later simulator activity.
     packet->allocate();
+    if (memory_chunk.access == MemoryAccess::Write) {
+        const auto *source = static_cast<const uint8_t *>(
+            memorySource(*instruction, memory_chunk));
+        std::memcpy(packet->getPtr<uint8_t>() + memory_chunk.packetOffset,
+                    source, memory_chunk.bytes);
+    }
 
     // SenderState is gem5's  way to carry component-private metadata, This is
     // what lets us find what instruction the returned data corresponds to.
-    packet->pushSenderState(new AmxSenderState(instruction_id, read_chunk));
+    packet->pushSenderState(
+        new AmxSenderState(instruction_id, memory_chunk));
 
     // A gem5 timing response may return immediately, so count it before the
     // queued port is allowed to send the packet.
@@ -249,7 +305,8 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
     memSidePort.schedTimingReq(packet, curTick());
 
     DPRINTF(AMX,
-            "Sent read for instruction %llu: vaddr 0x%lx -> paddr 0x%lx\n",
+            "Sent %s for instruction %llu: vaddr 0x%lx -> paddr 0x%lx\n",
+            memory_chunk.access == MemoryAccess::Read ? "read" : "write",
             static_cast<unsigned long long>(instruction_id),
             request->getVaddr(), request->getPaddr());
     completeMemoryStageIfReady(instruction_id);
@@ -282,35 +339,42 @@ AmxAccl::handleMemoryResponse(PacketPtr packet)
              "AMX instruction %llu received too many responses",
              static_cast<unsigned long long>(instruction->id));
 
+    const MemoryChunk &memory_chunk = state->memoryChunk;
+    validateMemoryOwner(*instruction, memory_chunk);
+    panic_if(!packet->isError() &&
+                 memory_chunk.access == MemoryAccess::Read &&
+                 !packet->isRead(),
+             "AMX read received a non-read response");
+    panic_if(!packet->isError() &&
+                 memory_chunk.access == MemoryAccess::Write &&
+                 !packet->isWrite(),
+             "AMX write received a non-write response");
+
     // A timing response may signal an error or, unexpectedly for a read,
-    // arrive without a data payload.  Record only the first failure so later
-    // responses merely drain the instruction's outstanding work.
+    // arrive without a data payload. Write responses need not carry data.
+    // Record only the first failure so later responses merely drain the
+    // instruction's outstanding work.
     if (packet->isError() && instruction->failure == AmxInst::Failure::None) {
         instruction->failure = AmxInst::Failure::MemoryError;
-    } else if (!packet->hasData() &&
+    } else if (memory_chunk.access == MemoryAccess::Read &&
+               !packet->hasData() &&
                instruction->failure == AmxInst::Failure::None) {
         instruction->failure = AmxInst::Failure::MissingData;
     }
 
-    const MemoryReadChunk &read_chunk = state->readChunk;
+    panic_if(memory_chunk.packetOffset > packet->getSize() ||
+                 memory_chunk.bytes >
+                     packet->getSize() - memory_chunk.packetOffset,
+             "AMX response chunk exceeds its packet");
 
-    // Check the response against the copy plan before doing pointer
-    // arithmetic. A packet size should be the same as a cache-line
-    // request size.
-    panic_if(read_chunk.sourceOffset > packet->getSize() ||
-                 read_chunk.bytesToCopy >
-                     packet->getSize() - read_chunk.sourceOffset,
-             "AMX response read chunk exceeds its packet");
-
-    // confirm that a memory read resonse belongs to the instruction and then
-    // returns data at the memory destination specified by the metadata
-    void *destination = memoryDestination(*instruction, read_chunk);
-    if (instruction->failure == AmxInst::Failure::None) {
+    if (memory_chunk.access == MemoryAccess::Read &&
+        instruction->failure == AmxInst::Failure::None) {
+        void *destination = memoryDestination(*instruction, memory_chunk);
         // The packet contains a whole cache line.  Skip any bytes before the
         // original virtual address and copy only this logical AMX chunk.
         const uint8_t *source =
-            packet->getConstPtr<uint8_t>() + read_chunk.sourceOffset;
-        std::memcpy(destination, source, read_chunk.bytesToCopy);
+            packet->getConstPtr<uint8_t>() + memory_chunk.packetOffset;
+        std::memcpy(destination, source, memory_chunk.bytes);
     }
 
     // Save what we need for the completion check before releasing the
@@ -326,62 +390,90 @@ AmxAccl::handleMemoryResponse(PacketPtr packet)
     completeMemoryStageIfReady(instruction_id);
 }
 
-// confirm that a memory read resonse belongs to the instruction
+// Confirm that an access belongs to its instruction and architectural buffer.
 void
-AmxAccl::validateMemoryReadOwner(const AmxInst &instruction,
-                                 const MemoryReadChunk &read_chunk) const
+AmxAccl::validateMemoryOwner(const AmxInst &instruction,
+                             const MemoryChunk &memory_chunk) const
 {
-    switch (read_chunk.target) {
+    switch (memory_chunk.target) {
         case MemoryTarget::TileRow:
-            panic_if(instruction.opcode != AmxOpcode::Load ||
-                         instruction.destination != read_chunk.tile,
-                     "AMX tile read has the wrong instruction owner");
+            if (memory_chunk.access == MemoryAccess::Read) {
+                panic_if(instruction.opcode != AmxOpcode::Load ||
+                             instruction.destination != memory_chunk.tile,
+                         "AMX tile read has the wrong instruction owner");
+            } else {
+                panic_if(instruction.opcode != AmxOpcode::Store ||
+                             instruction.source1 != memory_chunk.tile,
+                         "AMX tile write has the wrong instruction owner");
+            }
             return;
         case MemoryTarget::TileConfig:
-            panic_if(instruction.opcode != AmxOpcode::Config,
+            panic_if(memory_chunk.access != MemoryAccess::Read ||
+                         instruction.opcode != AmxOpcode::Config,
                      "AMX config read has the wrong instruction owner");
             return;
     }
 
-    panic("AMX memory read has an unknown target");
+    panic("AMX memory access has an unknown target");
 }
 
 // returns data at the memory destination specified by the metadata
 void *
 AmxAccl::memoryDestination(AmxInst &instruction,
-                           const MemoryReadChunk &read_chunk)
+                           const MemoryChunk &memory_chunk)
 {
-    // confirm tha tht
-    validateMemoryReadOwner(instruction, read_chunk);
+    validateMemoryOwner(instruction, memory_chunk);
+    panic_if(memory_chunk.access != MemoryAccess::Read,
+             "AMX write has no read destination");
 
     // Convert the target-independent callback metadata into the actual host
     // address where response bytes belong.  These are simulator data
     // structures representing architectural AMX state, not guest addresses.
-    switch (read_chunk.target) {
+    switch (memory_chunk.target) {
         case MemoryTarget::TileRow:
-            panic_if(read_chunk.tile >= NUM_TILES ||
-                         read_chunk.row >= MAX_ROWS,
+            panic_if(memory_chunk.tile >= NUM_TILES ||
+                         memory_chunk.row >= MAX_ROWS,
                      "AMX tile response has an invalid destination");
-            panic_if(read_chunk.destinationOffset > MAX_COLS_BYTES ||
-                         read_chunk.bytesToCopy >
-                             MAX_COLS_BYTES - read_chunk.destinationOffset,
+            panic_if(memory_chunk.bufferOffset > MAX_COLS_BYTES ||
+                         memory_chunk.bytes >
+                             MAX_COLS_BYTES - memory_chunk.bufferOffset,
                      "AMX tile response exceeds its row");
-            return &tiles[read_chunk.tile]
-                        .data[read_chunk.row][read_chunk.destinationOffset];
+            return &tiles[memory_chunk.tile]
+                        .data[memory_chunk.row][memory_chunk.bufferOffset];
 
         case MemoryTarget::TileConfig:
             // Configuration bytes are staged on the instruction.  They are
             // decoded, validated, and committed only after the complete read
             // succeeds, so a partial response cannot alter active config.
-            panic_if(read_chunk.destinationOffset > TILE_CONFIG_BYTES ||
-                         read_chunk.bytesToCopy >
-                             TILE_CONFIG_BYTES - read_chunk.destinationOffset,
+            panic_if(memory_chunk.bufferOffset > TILE_CONFIG_BYTES ||
+                         memory_chunk.bytes >
+                             TILE_CONFIG_BYTES - memory_chunk.bufferOffset,
                      "AMX config response exceeds its staging buffer");
             return instruction.configData.data() +
-                   read_chunk.destinationOffset;
+                   memory_chunk.bufferOffset;
     }
 
     panic("AMX memory response has an unknown target");
+}
+
+const void *
+AmxAccl::memorySource(const AmxInst &instruction,
+                      const MemoryChunk &memory_chunk) const
+{
+    validateMemoryOwner(instruction, memory_chunk);
+    panic_if(memory_chunk.access != MemoryAccess::Write ||
+                 memory_chunk.target != MemoryTarget::TileRow,
+             "AMX read has no write source");
+    panic_if(memory_chunk.tile >= NUM_TILES ||
+                 memory_chunk.row >= MAX_ROWS,
+             "AMX tile write has an invalid source");
+    panic_if(memory_chunk.bufferOffset > MAX_COLS_BYTES ||
+                 memory_chunk.bytes >
+                     MAX_COLS_BYTES - memory_chunk.bufferOffset,
+             "AMX tile write exceeds its row");
+
+    return &tiles[memory_chunk.tile]
+                .data[memory_chunk.row][memory_chunk.bufferOffset];
 }
 
 // -------------------------------------------------------------------------
@@ -397,7 +489,7 @@ AmxAccl::completeMemoryStageIfReady(uint64_t instruction_id)
              static_cast<unsigned long long>(instruction_id));
 
     // All three conditions are required:
-    //   - dispatchComplete: the execution loop will create no more reads;
+    //   - dispatchComplete: the execution loop will create no more accesses;
     //   - no translations: every MMU callback has returned;
     //   - no requests: every packet sent to memory has received a response.
     if (!instruction->translationDispatchComplete ||
@@ -408,14 +500,21 @@ AmxAccl::completeMemoryStageIfReady(uint64_t instruction_id)
 
     // Memory and the fixed execution latency overlap. Completion occurs only
     // after both have elapsed.
-    if (instruction->opcode == AmxOpcode::Load) {
-        instruction->memoryComplete = true;
-        completeLoadIfReady(instruction_id);
-        return;
+    switch (instruction->opcode) {
+        case AmxOpcode::Load:
+            instruction->memoryComplete = true;
+            completeLoadIfReady(instruction_id);
+            return;
+        case AmxOpcode::Store:
+            instruction->memoryComplete = true;
+            completeStoreIfReady(instruction_id);
+            return;
+        case AmxOpcode::Config:
+            break;
+        case AmxOpcode::DotProduct:
+        case AmxOpcode::Zero:
+            panic("AMX non-memory instruction reached memory completion");
     }
-
-    panic_if(instruction->opcode != AmxOpcode::Config,
-             "AMX memory completion reached an unsupported opcode");
 
     // A failed config has nothing valid to commit and should be reported
     // immediately rather than waiting for the normal configuration latency.
