@@ -10,10 +10,12 @@ namespace gem5
 
 // -------------------------------------------------------------------------
 // Architectural instruction entry points
+// basically hooks that pseduo_inst.cc can call to let us know which
+// instruction we are running
 // -------------------------------------------------------------------------
 
 void
-AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t destination, uint64_t source,
+AmxAccl::queueAmxLoad(ThreadContext *tc, uint64_t destination, uint64_t source,
                       uint64_t stride)
 {
     panic_if(!tc, "AMX: Tile load requires a valid thread context");
@@ -37,7 +39,7 @@ AmxAccl::startAmxLoad(ThreadContext *tc, uint64_t destination, uint64_t source,
 }
 
 void
-AmxAccl::startAmxLoadConfig(ThreadContext *tc, uint64_t config_address)
+AmxAccl::queueAmxLoadConfig(ThreadContext *tc, uint64_t config_address)
 {
     panic_if(!tc, "AMX: Tile configuration requires a thread context");
     panic_if(config_address > std::numeric_limits<uint64_t>::max() -
@@ -57,7 +59,7 @@ AmxAccl::startAmxLoadConfig(ThreadContext *tc, uint64_t config_address)
 }
 
 void
-AmxAccl::startAmxDotProduct(uint64_t dest_tile, uint64_t tile_a,
+AmxAccl::queueAmxDotProduct(uint64_t dest_tile, uint64_t tile_a,
                             uint64_t tile_b)
 {
     panic_if(dest_tile >= NUM_TILES,
@@ -103,12 +105,16 @@ AmxAccl::tryIssue()
     }
 
     issuingInstructions = true;
-
-    while (AmxInst *instruction = findReadyInstruction()) {
-        // There is no issue-bandwidth model yet, so issue all ready work.
+    while (true) {
+        AmxInst *instruction = findReadyInstruction();
+        if (instruction == nullptr) {
+            break;
+        }
         executeInstruction(instruction);
     }
     issuingInstructions = false;
+
+    updateIssueRetryEvent();
 
     if (!instructionQueue.empty()) {
         DPRINTF(AMX, "No additional AMX instruction is ready to issue\n");
@@ -122,6 +128,30 @@ AmxAccl::executeInstruction(AmxInst *instruction)
              "AMX scheduler selected an invalid queue entry");
     panic_if(!cpu, "AMX instruction issued without an attached CPU");
 
+    // resource utilization tracking
+    const std::optional<AmxResource> resource = issueResource(*instruction);
+    if (resource) {
+        // figure out when this instruction issued
+        const Cycles now = curCycle();
+        instruction->issueTick = curTick();
+        resourceTracker.issue(*resource, now); // mark resource as used
+        instruction->latencyElapsed = false;
+
+        // have the instruction scheduled for specifed latency later
+        scheduleInstructionLatency(instruction->id,
+                                   instructionLatency(*instruction));
+
+        const amx::ResourceState &state = resourceTracker.state(*resource);
+        DPRINTF(AMX,
+                "Issued instruction %llu on %s at cycle %llu; next issue "
+                "cycle %llu, %u in flight\n",
+                static_cast<unsigned long long>(instruction->id),
+                amx::resourceName(*resource),
+                static_cast<unsigned long long>(now),
+                static_cast<unsigned long long>(state.nextIssueCycle),
+                state.inFlight);
+    }
+
     switch (instruction->opcode) {
         case AmxOpcode::Config:
             executeConfigInstruction(instruction);
@@ -131,6 +161,9 @@ AmxAccl::executeInstruction(AmxInst *instruction)
             return;
         case AmxOpcode::DotProduct:
             executeDotProductInstruction(instruction);
+            return;
+        case AmxOpcode::Zero:
+            executeZeroInstruction(instruction);
             return;
         case AmxOpcode::Store:
             executeStoreInstruction(instruction);

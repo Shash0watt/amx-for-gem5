@@ -1,11 +1,11 @@
-#ifndef __AMX_AMX_INSTRUCTION_HH__
-#define __AMX_AMX_INSTRUCTION_HH__
+#ifndef __AMX_INSTRUCTION_AMX_HH__
+#define __AMX_INSTRUCTION_AMX_HH__
 
 #include <cstddef>
 #include <cstdint>
 #include <string>
 
-#include "amx/amx_tile.hh"
+#include "amx/tile_amx.hh"
 #include "base/types.hh"
 #include "sim/faults.hh"
 
@@ -22,6 +22,7 @@ enum class Opcode
     Config,
     Load,
     DotProduct,
+    Zero,
     Store
 };
 
@@ -80,6 +81,8 @@ struct Instruction
     uint32_t outstandingRequests = 0;
     bool translationDispatchComplete = false;
     bool completionScheduled = false;
+    bool latencyElapsed = false;
+    bool memoryComplete = false;
 
     RawTileConfig configData = {};
     Tick issueTick = 0;
@@ -98,4 +101,4 @@ struct Instruction
 } // namespace amx
 } // namespace gem5
 
-#endif // __AMX_AMX_INSTRUCTION_HH__
+#endif // __AMX_INSTRUCTION_AMX_HH__

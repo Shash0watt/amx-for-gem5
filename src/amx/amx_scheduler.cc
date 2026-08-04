@@ -1,4 +1,6 @@
 #include "amx/amx_accl.hh"
+#include "base/trace.hh"
+#include "debug/AMX.hh"
 
 namespace gem5
 {
@@ -10,61 +12,150 @@ namespace gem5
 AmxAccl::AmxInst *
 AmxAccl::findReadyInstruction()
 {
-    // from oldest first -> youngest instruction
+    // Find the oldest safe instruction, while allowing independent younger
+    // work to pass an instruction that is temporarily blocked.
+
+    // Recompute the next pipeline wakeup from this scan. Tile completions
+    // already wake the scheduler, so only pipeline availability needs a timer.
+    nextIssueRetryCycle.reset();
+
+    // Search in program order, from oldest to youngest.
     for (AmxInst &instruction : instructionQueue) {
 
-        // Make sure that tile_config can only issue if it is the oldest
+        // Configuration changes how every tile is interpreted, so nothing may
+        // pass it. It can issue only from the front with all tiles idle.
         if (instruction.opcode == AmxOpcode::Config) {
-            // It's only the oldest, when it's at the front of the queue
             const bool is_front = &instruction == &instructionQueue.front();
-            // The configuration is ready only if it has not issued, it is the
-            // oldest queued instruction, and no instruction is currently
-            // reading or writing a tile.
             if (instruction.state == AmxInst::State::Pending && is_front &&
                 allTilesIdle()) {
                 return &instruction;
             }
-            // Stop searching even when this configuration is not ready. If we
-            // continued, a younger instruction could incorrectly pass the
-            // configuration barrier.
+
+            // A blocked configuration also blocks everything behind it.
             return nullptr;
         }
 
-        // Executing instructions stay in the queue until completion. We can't
-        // return a true for them, but independent younger work may still be
-        // ready and can be issued
+        // Issued work stays in the queue until completion, but it cannot issue
+        // a second time.
         if (instruction.state != AmxInst::State::Pending) {
             continue;
         }
 
-        // The scoreboard records tiles being used by instructions that are
-        // already executing. Wait if this instruction would conflict with one
-        // of those active readers or writers.
+        // Do not conflict with tile reads or writes already in progress.
         if (hasActiveTileHazard(instruction)) {
             continue;
         }
 
-        // Also wait if this instruction depends on an older instruction that
-        // has not completed. This preserves dependencies even when that older
-        // instruction is itself still pending and therefore not on the active
-        // scoreboard yet.
+        // Also preserve dependencies on older work that has not issued yet.
         if (hasOlderTileHazard(instruction)) {
+            // TODO: Consider renaming after connecting to the O3 CPU, if the
+            // TODO: modeled Sapphire Rapids behavior supports it.
             continue;
-            // TODO: when we connect properly with the O3 CPU we should allow
-            // TODO: renaming.. well only if saphire rapids supports it
         }
 
-        // This is the oldest pending instruction with no active or queue-order
-        // hazard, so it is safe for the issue loop to execute it.
+        // A busy pipeline blocks only instructions that use that pipeline.
+        const std::optional<AmxResource> resource = issueResource(instruction);
+        if (resource && !resourceTracker.canIssue(*resource, curCycle())) {
+            // Remember when to retry, then look for work on another pipeline.
+            noteResourceRetry(resourceTracker.nextIssueCycle(*resource));
+            continue;
+        }
+
+        // This instruction has passed every readiness check.
         return &instruction;
     }
-    // The queue is empty, or every pending instruction is currently blocked.
+
+    // The queue is empty or every remaining instruction is blocked.
     return nullptr;
+}
+
+std::optional<AmxAccl::AmxResource>
+AmxAccl::issueResource(const AmxInst &instruction) const
+{
+    // Map each opcode to the independent pipeline that accepts it.
+    switch (instruction.opcode) {
+        case AmxOpcode::Config:
+            return std::nullopt;
+        case AmxOpcode::Load:
+            return AmxResource::TileLoad;
+        case AmxOpcode::DotProduct:
+            return AmxResource::DotProduct;
+        case AmxOpcode::Zero:
+            return AmxResource::TileZero;
+        case AmxOpcode::Store:
+            return AmxResource::TileStore;
+    }
+
+    panic("AMX instruction has no issue-resource mapping");
+}
+
+Cycles
+AmxAccl::instructionLatency(const AmxInst &instruction) const
+{
+    // Return the minimum execution time configured for this opcode.
+    switch (instruction.opcode) {
+        case AmxOpcode::Load:
+            return loadLatency;
+        case AmxOpcode::DotProduct:
+            return dotProductLatency;
+        case AmxOpcode::Zero:
+            return zeroLatency;
+        case AmxOpcode::Store:
+            return storeLatency;
+        case AmxOpcode::Config:
+            break;
+    }
+
+    panic("AMX instruction has no generic latency");
+}
+
+void
+AmxAccl::noteResourceRetry(Cycles retry_cycle)
+{
+    // Keep the earliest cycle when any blocked pipeline becomes available.
+    if (!nextIssueRetryCycle || retry_cycle < *nextIssueRetryCycle) {
+        nextIssueRetryCycle = retry_cycle;
+    }
+}
+
+void
+AmxAccl::updateIssueRetryEvent()
+{
+    // Make the scheduler's wakeup event match the earliest required retry.
+    if (!nextIssueRetryCycle) {
+        if (issueRetryEvent.scheduled()) {
+            deschedule(issueRetryEvent);
+        }
+        return;
+    }
+
+    const Cycles now = curCycle();
+    panic_if(*nextIssueRetryCycle <= now,
+             "AMX scheduler requested a retry that is not in the future");
+    const Tick retry_tick = clockEdge(*nextIssueRetryCycle - now);
+
+    if (!issueRetryEvent.scheduled()) {
+        schedule(issueRetryEvent, retry_tick);
+    } else if (issueRetryEvent.when() != retry_tick) {
+        reschedule(issueRetryEvent, retry_tick, true);
+    }
+
+    DPRINTF(AMX, "Next resource-blocked issue retry is cycle %llu\n",
+            static_cast<unsigned long long>(*nextIssueRetryCycle));
+}
+
+void
+AmxAccl::processIssueRetryEvent()
+{
+    // A pipeline should now be available, so scan the queue again.
+    DPRINTF(AMX, "Retrying resource-blocked AMX instructions\n");
+    tryIssue();
 }
 
 bool
 AmxAccl::hasActiveTileHazard(const AmxInst &instruction) const
 {
+    // Check the candidate against tile readers and writers already executing.
     for (int tile = 0; tile < NUM_TILES; ++tile) {
         const ScoreboardEntry &scoreboard = tileScoreboard[tile];
 
@@ -94,6 +185,7 @@ AmxAccl::hasActiveTileHazard(const AmxInst &instruction) const
 bool
 AmxAccl::hasOlderTileHazard(const AmxInst &instruction) const
 {
+    // Check the candidate against all older unfinished queue entries.
     for (const AmxInst &older : instructionQueue) {
         if (&older == &instruction) {
             return false;
@@ -120,6 +212,7 @@ AmxAccl::hasOlderTileHazard(const AmxInst &instruction) const
 bool
 AmxAccl::allTilesIdle() const
 {
+    // Configuration is safe only when no tile is being read or written.
     for (const ScoreboardEntry &entry : tileScoreboard) {
         if (entry.writeActive || entry.readerCount != 0) {
             return false;
@@ -136,6 +229,7 @@ AmxAccl::allTilesIdle() const
 AmxAccl::AmxInst *
 AmxAccl::findInstruction(uint64_t instruction_id)
 {
+    // Find the live queue entry referenced by an asynchronous callback.
     for (AmxInst &instruction : instructionQueue) {
         if (instruction.id == instruction_id) {
             return &instruction;
@@ -148,6 +242,7 @@ AmxAccl::findInstruction(uint64_t instruction_id)
 void
 AmxAccl::eraseInstruction(uint64_t instruction_id)
 {
+    // Remove one fully completed instruction from the live queue.
     for (auto it = instructionQueue.begin(); it != instructionQueue.end();
          ++it) {
         if (it->id == instruction_id) {

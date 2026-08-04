@@ -43,6 +43,7 @@ AmxAccl::beginMemoryInstruction(AmxInst *instruction)
     // is still creating the rest of the reads.
     instruction->translationDispatchComplete = false;
     instruction->completionScheduled = false;
+    instruction->memoryComplete = false;
 }
 
 void
@@ -54,7 +55,7 @@ AmxAccl::finishMemoryDispatch(AmxInst *instruction)
     // Mark that no more 'work' will be created
     instruction->translationDispatchComplete = true;
     // memory loads could be complete right away
-    maybeFinishMemoryInstruction(instruction_id);
+    completeMemoryStageIfReady(instruction_id);
 }
 
 // this is the actual memory request
@@ -207,13 +208,13 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
         }
         // this could be our last translation, so we should try and see if we
         // can complete
-        maybeFinishMemoryInstruction(instruction_id);
+        completeMemoryStageIfReady(instruction_id);
         return;
     }
 
-    // There is a falilure, maybeFinish.. will panic and stop the simulation
+    // A recorded failure is reported after the remaining memory work drains.
     if (instruction->failure != AmxInst::Failure::None) {
-        maybeFinishMemoryInstruction(instruction_id);
+        completeMemoryStageIfReady(instruction_id);
         return;
     }
 
@@ -251,7 +252,7 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
             "Sent read for instruction %llu: vaddr 0x%lx -> paddr 0x%lx\n",
             static_cast<unsigned long long>(instruction_id),
             request->getVaddr(), request->getPaddr());
-    maybeFinishMemoryInstruction(instruction_id);
+    completeMemoryStageIfReady(instruction_id);
 }
 
 // -------------------------------------------------------------------------
@@ -322,7 +323,7 @@ AmxAccl::handleMemoryResponse(PacketPtr packet)
 
     // possible that we have a finished instruction at the end of handling the
     // memory response
-    maybeFinishMemoryInstruction(instruction_id);
+    completeMemoryStageIfReady(instruction_id);
 }
 
 // confirm that a memory read resonse belongs to the instruction
@@ -388,13 +389,9 @@ AmxAccl::memoryDestination(AmxInst &instruction,
 // -------------------------------------------------------------------------
 
 void
-AmxAccl::maybeFinishMemoryInstruction(uint64_t instruction_id)
+AmxAccl::completeMemoryStageIfReady(uint64_t instruction_id)
 {
-    // Every path that creates or drains asynchronous work calls this helper.
-
-    // This function keeps the “is everything finished?” logic in one place,
-    // ensuring the instruction completes only when all required work is done,
-    // regardless of callback arrival order.
+    // Advance only after dispatch, translations, and cache requests are done.
     AmxInst *instruction = findInstruction(instruction_id);
     panic_if(!instruction, "AMX completion check for unknown instruction %llu",
              static_cast<unsigned long long>(instruction_id));
@@ -409,10 +406,11 @@ AmxAccl::maybeFinishMemoryInstruction(uint64_t instruction_id)
         return;
     }
 
-    // Loads have no additional modeled execution delay once their bytes have
-    // arrived, so they can commit immediately.
+    // Memory and the fixed execution latency overlap. Completion occurs only
+    // after both have elapsed.
     if (instruction->opcode == AmxOpcode::Load) {
-        finishLoadInstruction(instruction);
+        instruction->memoryComplete = true;
+        completeLoadIfReady(instruction_id);
         return;
     }
 

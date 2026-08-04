@@ -1,4 +1,4 @@
-#include "amx/amx_instruction.hh"
+#include "amx/instruction_amx.hh"
 
 namespace gem5
 {
@@ -54,8 +54,8 @@ Instruction::readsTile(int tile) const
 bool
 Instruction::writesTile(int tile) const
 {
-    return (opcode == Opcode::Load || opcode == Opcode::DotProduct) &&
-           destination == tile;
+    return (opcode == Opcode::Load || opcode == Opcode::DotProduct ||
+            opcode == Opcode::Zero) && destination == tile;
 }
 
 bool

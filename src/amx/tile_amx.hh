@@ -1,5 +1,5 @@
-#ifndef __AMX_AMX_TILE_HH__
-#define __AMX_AMX_TILE_HH__
+#ifndef __AMX_TILE_AMX_HH__
+#define __AMX_TILE_AMX_HH__
 
 #include <array>
 #include <cstddef>
@@ -57,4 +57,4 @@ void traceFloat32Tile(const TileConfig &config, const TileRegisterFile &tiles,
 } // namespace amx
 } // namespace gem5
 
-#endif // __AMX_AMX_TILE_HH__
+#endif // __AMX_TILE_AMX_HH__

@@ -5,10 +5,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <map>
+#include <optional>
 #include <string>
 
-#include "amx/amx_instruction.hh"
-#include "amx/amx_tile.hh"
+#include "amx/instruction_amx.hh"
+#include "amx/resource_amx.hh"
+#include "amx/tile_amx.hh"
 #include "arch/generic/mmu.hh"
 #include "mem/packet.hh"
 #include "mem/packet_queue.hh"
@@ -52,17 +55,18 @@ class AmxAccl : public ClockedObject
 
     // TODO: replace serialized pseudo-ops with a retire-aware instruction
     // path.
-    void startAmxLoad(ThreadContext *tc, uint64_t destination, uint64_t source,
+    void queueAmxLoad(ThreadContext *tc, uint64_t destination, uint64_t source,
                       uint64_t stride);
-    void startAmxLoadConfig(ThreadContext *tc, uint64_t config_address);
+    void queueAmxLoadConfig(ThreadContext *tc, uint64_t config_address);
 
-    void startAmxDotProduct(uint64_t dest_tile, uint64_t tile_a,
+    void queueAmxDotProduct(uint64_t dest_tile, uint64_t tile_a,
                             uint64_t tile_b);
     void tryIssue();
 
   private:
     using AmxInst = amx::Instruction;
     using AmxOpcode = amx::Opcode;
+    using AmxResource = amx::Resource;
 
     // ---------------------------------------------------------------------
     // Memory port and translation callback
@@ -129,6 +133,12 @@ class AmxAccl : public ClockedObject
     // ---------------------------------------------------------------------
     AmxInst *findReadyInstruction();
     AmxInst *findInstruction(uint64_t instruction_id);
+    std::optional<AmxResource>
+    issueResource(const AmxInst &instruction) const;
+    Cycles instructionLatency(const AmxInst &instruction) const;
+    void noteResourceRetry(Cycles retry_cycle);
+    void updateIssueRetryEvent();
+    void processIssueRetryEvent();
     bool hasActiveTileHazard(const AmxInst &instruction) const;
     bool hasOlderTileHazard(const AmxInst &instruction) const;
     bool allTilesIdle() const;
@@ -141,11 +151,22 @@ class AmxAccl : public ClockedObject
     void executeLoadInstruction(AmxInst *instruction);
     void executeConfigInstruction(AmxInst *instruction);
     void executeDotProductInstruction(AmxInst *instruction);
+    void executeZeroInstruction(AmxInst *instruction);
     void executeStoreInstruction(AmxInst *instruction);
-    void finishLoadInstruction(AmxInst *instruction);
+    void completeLoadIfReady(uint64_t instruction_id);
+    void completeLoadInstruction(AmxInst *instruction);
+    void finishDotProductInstruction(uint64_t instruction_id);
     void finishConfigInstruction(uint64_t instruction_id);
     void processConfigCompletionEvent();
     void commitTileConfig(const amx::TileConfig &config);
+
+    // ---------------------------------------------------------------------
+    // Generic instruction latency
+    // ---------------------------------------------------------------------
+    void scheduleInstructionLatency(uint64_t instruction_id, Cycles latency);
+    void armLatencyEvent();
+    void processLatencyEvent();
+    void instructionLatencyElapsed(uint64_t instruction_id);
 
     // ---------------------------------------------------------------------
     // Translation and timed memory access
@@ -166,7 +187,7 @@ class AmxAccl : public ClockedObject
                                  const MemoryReadChunk &read_chunk) const;
     void *memoryDestination(AmxInst &instruction,
                             const MemoryReadChunk &read_chunk);
-    void maybeFinishMemoryInstruction(uint64_t instruction_id);
+    void completeMemoryStageIfReady(uint64_t instruction_id);
 
     // ---------------------------------------------------------------------
     // SimObject connections and architectural state
@@ -179,8 +200,18 @@ class AmxAccl : public ClockedObject
     bool tilesConfigured;
 
     const Cycles configLatency;
+    const Cycles loadLatency;
+    const Cycles dotProductLatency;
+    const Cycles zeroLatency;
+    const Cycles storeLatency;
+    amx::ResourceTracker resourceTracker;
+
     EventFunctionWrapper configCompletionEvent;
     uint64_t pendingConfigInstructionId;
+    EventFunctionWrapper issueRetryEvent;
+    std::optional<Cycles> nextIssueRetryCycle;
+    EventFunctionWrapper latencyEvent;
+    std::multimap<Tick, uint64_t> latencyDeadlines;
 
     struct ScoreboardEntry
     {

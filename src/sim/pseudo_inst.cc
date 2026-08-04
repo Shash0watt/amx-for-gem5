@@ -636,7 +636,7 @@ amxLoadd(ThreadContext *tc, uint64_t dest_tile, GuestAddr src_mem,
     AmxAccl *accl = cpu->getAmxAccl();
 
     if (accl) {
-        accl->startAmxLoad(tc, dest_tile, src_mem.addr, stride);
+        accl->queueAmxLoad(tc, dest_tile, src_mem.addr, stride);
     } else {
         panic("amxLoadd executed without an attached AMX accelerator");
     }
@@ -650,7 +650,7 @@ amxLoadConfig(ThreadContext *tc, GuestAddr config_addr)
     AmxAccl *accl = cpu->getAmxAccl();
 
     if (accl) {
-        accl->startAmxLoadConfig(tc, config_addr.addr); 
+        accl->queueAmxLoadConfig(tc, config_addr.addr);
     } else {
         panic("amxLoadConfig executed without an attached AMX accelerator");
     }
@@ -664,7 +664,7 @@ amxDotProduct(ThreadContext *tc, uint64_t dest_tile, uint64_t tile_a,
     AmxAccl *accl = cpu->getAmxAccl();
 
     if (accl) {
-        accl->startAmxDotProduct(dest_tile, tile_a, tile_b);
+        accl->queueAmxDotProduct(dest_tile, tile_a, tile_b);
     } else {
         panic("amxDotProduct executed without an attached AMX accelerator");
     }

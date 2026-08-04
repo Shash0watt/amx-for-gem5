@@ -17,10 +17,22 @@ AmxAccl::AmxAccl(const AmxAcclParams &params)
       currentConfig{},
       tilesConfigured(false),
       configLatency(params.config_latency),
+      loadLatency(params.load_latency),
+      dotProductLatency(params.dp_latency),
+      zeroLatency(params.zero_latency),
+      storeLatency(params.store_latency),
+      resourceTracker(params.load_issue_throughput,
+                      params.dp_issue_throughput,
+                      params.zero_issue_throughput,
+                      params.store_issue_throughput),
       configCompletionEvent(
           [this] { processConfigCompletionEvent(); },
           name() + ".config_completion"),
-      pendingConfigInstructionId(0)
+      pendingConfigInstructionId(0),
+      issueRetryEvent(
+          [this] { processIssueRetryEvent(); }, name() + ".issue_retry"),
+      latencyEvent(
+          [this] { processLatencyEvent(); }, name() + ".instruction_latency")
 {
     amx::clearTiles(tiles);
     DPRINTF(AMX, "Created the AMX SimObject\n");

@@ -1,6 +1,7 @@
 #include <limits>
 
 #include "amx/amx_accl.hh"
+#include "amx/dp_math_amx.hh"
 #include "base/trace.hh"
 #include "debug/AMX.hh"
 
@@ -127,17 +128,36 @@ AmxAccl::executeLoadInstruction(AmxInst *instruction)
 }
 
 void
-AmxAccl::finishLoadInstruction(AmxInst *instruction)
+AmxAccl::completeLoadIfReady(uint64_t instruction_id)
 {
+    AmxInst *instruction = findInstruction(instruction_id);
+    panic_if(!instruction || instruction->opcode != AmxOpcode::Load,
+             "AMX load completion checked the wrong instruction");
+
+    // A load is ready only after both its memory work and latency are done.
+    if (!instruction->memoryComplete || !instruction->latencyElapsed) {
+        return;
+    }
+
+    completeLoadInstruction(instruction);
+}
+
+void
+AmxAccl::completeLoadInstruction(AmxInst *instruction)
+{
+    // Release everything owned by a load that is fully ready to complete.
     panic_if(!instruction || instruction->opcode != AmxOpcode::Load,
              "AMX load completion received the wrong instruction");
     panic_if(!instruction->translationDispatchComplete ||
                  instruction->outstandingTranslations != 0 ||
                  instruction->outstandingRequests != 0,
              "AMX tile load completed with outstanding memory work");
+    panic_if(!instruction->memoryComplete || !instruction->latencyElapsed,
+             "AMX tile load completed before memory and latency elapsed");
 
     instruction->state = AmxInst::State::Completed;
     tileScoreboard[instruction->destination].writeActive = false;
+    resourceTracker.complete(AmxResource::TileLoad);
     reportLoadFailure(*instruction);
 
     amx::traceInt32Tile(currentConfig, tiles, instruction->destination);
@@ -221,33 +241,96 @@ AmxAccl::commitTileConfig(const amx::TileConfig &config)
 }
 
 // -------------------------------------------------------------------------
-// Dot-product and store placeholders
+// Dot-product execution
 // -------------------------------------------------------------------------
 
 void
 AmxAccl::executeDotProductInstruction(AmxInst *instruction)
 {
+    // Start a dot product and keep its tiles busy until its latency expires.
     panic_if(!tilesConfigured,
              "AMX dot product issued before tile configuration");
-    panic_if(
-        instruction->destination < 0 ||
-            instruction->destination >= NUM_TILES ||
-            instruction->source1 < -1 || instruction->source1 >= NUM_TILES ||
-            instruction->source2 < -1 || instruction->source2 >= NUM_TILES,
-        "AMX dot product has an invalid tile operand");
+
+    // Confirm that the three configured tile shapes can be multiplied.
+    amx::validateDotProductOp(
+        currentConfig, instruction->destination, instruction->source1,
+        instruction->source2);
 
     instruction->state = AmxInst::State::Executing;
-    tileScoreboard[instruction->destination].writeActive = true;
 
-    if (instruction->source1 != -1) {
-        tileScoreboard[instruction->source1].readerCount++;
-    }
-    tileScoreboard[instruction->destination].readerCount++;
-    if (instruction->source2 != -1) {
-        tileScoreboard[instruction->source2].readerCount++;
+    // Record every tile this operation reads or writes. This prevents other
+    // instructions from changing those tiles before the result is ready.
+    for (int tile = 0; tile < NUM_TILES; ++tile) {
+        if (instruction->writesTile(tile)) {
+            panic_if(tileScoreboard[tile].writeActive,
+                     "AMX issued TDPBF16PS with an active tile writer");
+            tileScoreboard[tile].writeActive = true;
+        }
+        if (instruction->readsTile(tile)) {
+            ++tileScoreboard[tile].readerCount;
+        }
     }
 
-    // TODO: implement dot-product execution and completion.
+    DPRINTF(AMX, "Executing TDPBF16PS %llu; result is due at tick %llu\n",
+            static_cast<unsigned long long>(instruction->id),
+            static_cast<unsigned long long>(
+                instruction->issueTick + cyclesToTicks(dotProductLatency)));
+}
+
+void
+AmxAccl::finishDotProductInstruction(uint64_t instruction_id)
+{
+    // Produce the delayed result, then release the tiles and pipeline state.
+    AmxInst *instruction = findInstruction(instruction_id);
+    panic_if(!instruction || instruction->opcode != AmxOpcode::DotProduct,
+             "AMX TDPBF16PS completion received the wrong instruction");
+    panic_if(!instruction->latencyElapsed,
+             "AMX TDPBF16PS completed before its latency elapsed");
+
+    // The tile data changes here, after the modeled latency has elapsed.
+    amx::doDotProductBF16(
+        currentConfig, tiles, instruction->destination, instruction->source1,
+        instruction->source2);
+    amx::traceFloat32Tile(currentConfig, tiles, instruction->destination);
+
+    // Remove the read and write reservations made when the operation started.
+    for (int tile = 0; tile < NUM_TILES; ++tile) {
+        if (instruction->writesTile(tile)) {
+            panic_if(!tileScoreboard[tile].writeActive,
+                     "AMX TDPBF16PS completed without an active writer");
+            tileScoreboard[tile].writeActive = false;
+        }
+        if (instruction->readsTile(tile)) {
+            panic_if(tileScoreboard[tile].readerCount <= 0,
+                     "AMX TDPBF16PS completed without an active reader");
+            --tileScoreboard[tile].readerCount;
+        }
+    }
+
+    instruction->state = AmxInst::State::Completed;
+
+    // Record that this operation is no longer using the dot-product pipeline.
+    resourceTracker.complete(AmxResource::DotProduct);
+    DPRINTF(AMX, "Completed TDPBF16PS %llu\n",
+            static_cast<unsigned long long>(instruction_id));
+
+    // Remove the completed work and look for instructions it was blocking.
+    eraseInstruction(instruction_id);
+    tryIssue();
+}
+
+// -------------------------------------------------------------------------
+// Future-operation placeholders
+// -------------------------------------------------------------------------
+
+void
+AmxAccl::executeZeroInstruction(AmxInst *instruction)
+{
+    panic_if(!instruction, "AMX tile zero received no instruction");
+    instruction->state = AmxInst::State::Executing;
+
+    // TILEZERO issue and latency are modeled, but its public instruction path
+    // and functional completion are intentionally left for the TILEZERO work.
 }
 
 void

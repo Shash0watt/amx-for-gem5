@@ -599,10 +599,10 @@ pseudo-instruction dispatch in src/sim/pseudo_inst.hh
 pseudo_inst::amxLoadd in src/sim/pseudo_inst.cc
         |
         v
-AmxAccl::startAmxLoad
+AmxAccl::queueAmxLoad
 ```
 
-`startAmxLoad()` records the `ThreadContext`, virtual base address, stride, tile
+`queueAmxLoad()` records the `ThreadContext`, virtual base address, stride, tile
 number, and a stable instruction ID in the accelerator's instruction queue.
 
 ### 9.2 Fragment generation
