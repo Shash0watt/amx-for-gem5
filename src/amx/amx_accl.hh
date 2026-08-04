@@ -61,6 +61,7 @@ class AmxAccl : public ClockedObject
 
     void queueAmxDotProduct(uint64_t dest_tile, uint64_t tile_a,
                             uint64_t tile_b);
+    void queueAmxZero(uint64_t destination);
     void tryIssue();
 
   private:
@@ -156,6 +157,7 @@ class AmxAccl : public ClockedObject
     void completeLoadIfReady(uint64_t instruction_id);
     void completeLoadInstruction(AmxInst *instruction);
     void finishDotProductInstruction(uint64_t instruction_id);
+    void finishZeroInstruction(uint64_t instruction_id);
     void finishConfigInstruction(uint64_t instruction_id);
     void processConfigCompletionEvent();
     void commitTileConfig(const amx::TileConfig &config);

@@ -320,17 +320,76 @@ AmxAccl::finishDotProductInstruction(uint64_t instruction_id)
 }
 
 // -------------------------------------------------------------------------
-// Future-operation placeholders
+// TILEZERO execution
 // -------------------------------------------------------------------------
 
 void
 AmxAccl::executeZeroInstruction(AmxInst *instruction)
 {
-    panic_if(!instruction, "AMX tile zero received no instruction");
-    instruction->state = AmxInst::State::Executing;
+    // Check that TILEZERO has a valid destination in the current layout.
+    panic_if(!instruction || instruction->opcode != AmxOpcode::Zero,
+             "AMX TILEZERO execution received the wrong instruction");
+    panic_if(!tilesConfigured, "AMX TILEZERO issued before tile configuration");
+    panic_if(instruction->destination < 0 ||
+                 instruction->destination >= NUM_TILES,
+             "AMX TILEZERO has invalid destination tile %d",
+             instruction->destination);
 
-    // TILEZERO issue and latency are modeled, but its public instruction path
-    // and functional completion are intentionally left for the TILEZERO work.
+    const uint8_t tile = instruction->destination;
+    const uint16_t rows = currentConfig.rows[tile];
+    const uint16_t row_bytes = currentConfig.columnBytes[tile];
+    panic_if(rows == 0 || row_bytes == 0,
+             "AMX TILEZERO target tile %u is not configured", tile);
+    panic_if(rows > MAX_ROWS || row_bytes > MAX_COLS_BYTES,
+             "AMX TILEZERO target tile %u has invalid configured dimensions",
+             tile);
+
+    // Keep other instructions from using the tile until zeroing finishes.
+    instruction->state = AmxInst::State::Executing;
+    panic_if(tileScoreboard[tile].writeActive,
+             "AMX TILEZERO issued with an active tile writer");
+    tileScoreboard[tile].writeActive = true;
+
+    DPRINTF(AMX,
+            "Executing TILEZERO %llu for TMM%u; result is due at tick %llu\n",
+            static_cast<unsigned long long>(instruction->id), tile,
+            static_cast<unsigned long long>(
+                instruction->issueTick + cyclesToTicks(zeroLatency)));
+}
+
+void
+AmxAccl::finishZeroInstruction(uint64_t instruction_id)
+{
+    // Finish the delayed operation once its required latency has passed.
+    AmxInst *instruction = findInstruction(instruction_id);
+    panic_if(!instruction || instruction->opcode != AmxOpcode::Zero,
+             "AMX TILEZERO completion received the wrong instruction");
+    panic_if(instruction->state != AmxInst::State::Executing,
+             "AMX TILEZERO completion received an inactive instruction");
+    panic_if(!instruction->latencyElapsed,
+             "AMX TILEZERO completed before its latency elapsed");
+
+    const uint8_t tile = instruction->destination;
+    panic_if(tile >= NUM_TILES,
+             "AMX TILEZERO completion has invalid destination tile %u", tile);
+    panic_if(!tileScoreboard[tile].writeActive,
+             "AMX TILEZERO completed without an active tile writer");
+
+    // Clear the entire tile, including rows and columns outside its layout.
+    tiles[tile] = {};
+    amx::traceInt8Tile(currentConfig, tiles, tile);
+
+    // Release the tile and TILEZERO pipeline now that the result is ready.
+    tileScoreboard[tile].writeActive = false;
+    instruction->state = AmxInst::State::Completed;
+    resourceTracker.complete(AmxResource::TileZero);
+
+    DPRINTF(AMX, "Completed TILEZERO %llu for TMM%u\n",
+            static_cast<unsigned long long>(instruction_id), tile);
+
+    // Remove the completed work and retry instructions it was blocking.
+    eraseInstruction(instruction_id);
+    tryIssue();
 }
 
 void

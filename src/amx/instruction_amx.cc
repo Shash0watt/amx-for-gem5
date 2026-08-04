@@ -41,6 +41,13 @@ Instruction::tileDotProduct(uint64_t id, uint8_t destination,
                        0, 0, nullptr);
 }
 
+Instruction
+Instruction::tileZero(uint64_t id, uint8_t destination)
+{
+    return Instruction(id, Opcode::Zero, destination, -1, -1, 0, 0,
+                       nullptr);
+}
+
 bool
 Instruction::readsTile(int tile) const
 {

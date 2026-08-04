@@ -52,6 +52,7 @@ struct Instruction
 
     static Instruction tileDotProduct(uint64_t id, uint8_t destination,
                                       uint8_t source1, uint8_t source2);
+    static Instruction tileZero(uint64_t id, uint8_t destination);
 
     bool readsTile(int tile) const;
     bool writesTile(int tile) const;

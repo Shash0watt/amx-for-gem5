@@ -135,7 +135,7 @@ read drains.
 | `resource_amx.hh` / `resource_amx.cc` | Track the next issue cycle and in-flight count for the load, dot-product, zero, and store pipelines. |
 | `dp_math_amx.hh` | Header-only BF16 dot-product operand validation and calculation helpers. |
 | `amx_latency.cc` | Schedules fixed instruction-latency events and sends elapsed instructions to their completion paths. |
-| `amx_execution.cc` | Implements tile load, tile configuration, BF16 dot product, scoreboard updates, and opcode completion. Zero and store are incomplete placeholders. |
+| `amx_execution.cc` | Implements tile load, tile configuration, TILEZERO, BF16 dot product, scoreboard updates, and opcode completion. Store remains an incomplete placeholder. |
 | `amx_memory.cc` | Splits reads at cache-line boundaries, performs address translation, sends timing requests, routes response bytes, and detects memory-operation completion. |
 | `tile_amx.hh` / `tile_amx.cc` | Define tile/configuration data, decode and validate configurations, clear tile state, and format tile contents for debug traces. |
 | `amxXbar/` | Contains the Python cache-hierarchy configuration used to connect AMX memory traffic. It is separate from the C++ execution model. |
@@ -263,6 +263,16 @@ tryIssue() remaining work
    the resource is no longer in flight, removes the instruction from the
    queue, and calls `tryIssue()` so newly unblocked work can start.
 
+### TILEZERO
+
+`queueAmxZero()` creates a destination-only instruction. It waits for older
+work on that tile, reserves the tile's write scoreboard entry when it issues,
+and completes after the configured 16-cycle zero latency. Completion clears
+the full tile-register backing storage, releases the write and `TileZero`
+resource reservations, removes the instruction from the queue, and retries
+issuance of dependent work. Clearing the full backing storage ensures inactive
+rows and columns are zero as well as the configured region.
+
 ## Timing model
 
 Latency and issue throughput describe different things:
@@ -314,9 +324,9 @@ different pipeline. `AmxAccl.py` contains the default timing values.
 
 When adding an opcode, its instruction representation, dependency behavior,
 execution path, completion path, and scoreboard effects should be considered
-together. Tile configuration, tile load, and BF16 dot product have functional
-completion paths. Zero and store currently have only scheduling and timing
-scaffolding; they do not yet complete functionally.
+together. Tile configuration, tile load, TILEZERO, and BF16 dot product have
+functional completion paths. Store currently has only scheduling and timing
+scaffolding; it does not yet complete functionally.
 
 Use gem5's `AMX` debug flag to see queueing, memory, configuration, and tile
 trace messages from this component.

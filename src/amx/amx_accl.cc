@@ -90,6 +90,24 @@ AmxAccl::queueAmxDotProduct(uint64_t dest_tile, uint64_t tile_a,
     tryIssue();
 }
 
+void
+AmxAccl::queueAmxZero(uint64_t destination)
+{
+    panic_if(destination >= NUM_TILES,
+             "AMX TILEZERO destination tile %llu is invalid",
+             static_cast<unsigned long long>(destination));
+
+    const uint64_t id = nextInstructionId++;
+    instructionQueue.push_back(
+        AmxInst::tileZero(id, static_cast<uint8_t>(destination)));
+
+    DPRINTF(AMX, "Queued TILEZERO %llu for TMM%llu\n",
+            static_cast<unsigned long long>(id),
+            static_cast<unsigned long long>(destination));
+
+    tryIssue();
+}
+
 // -------------------------------------------------------------------------
 // Issue and high-level execution flow
 // -------------------------------------------------------------------------
