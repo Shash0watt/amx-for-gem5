@@ -160,7 +160,7 @@ AmxAccl::completeLoadInstruction(AmxInst *instruction)
     resourceTracker.complete(AmxResource::TileLoad);
     reportLoadFailure(*instruction);
 
-    amx::traceInt32Tile(currentConfig, tiles, instruction->destination);
+    amx::traceBFloat16Tile(currentConfig, tiles, instruction->destination);
 
     const uint64_t completed_id = instruction->id;
     eraseInstruction(completed_id);
