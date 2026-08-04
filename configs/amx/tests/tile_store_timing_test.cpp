@@ -1,4 +1,3 @@
-#include <cstddef>
 #include <cstdint>
 
 #include <gem5/m5ops.h>
@@ -17,49 +16,41 @@ static_assert(sizeof(TileConfig) == 64);
 int
 main()
 {
-    constexpr uint64_t tile = 0;
-    constexpr size_t sourceRowBytes = 16;
-    constexpr size_t destinationStride = 32;
-    constexpr size_t rows = 4;
-    constexpr uint8_t joe = 0x5a;
+    constexpr uint64_t resultTile = 0;
+    constexpr uint64_t leftTile = 1;
+    constexpr uint64_t rightTile = 2;
+    constexpr uint64_t reloadedTile = 3;
 
-    alignas(64) uint8_t source[rows][sourceRowBytes] = {};
-    for (size_t row = 0; row < rows; ++row) {
-        for (size_t column = 0; column < sourceRowBytes; ++column) {
-            source[row][column] = 0x10 * (row + 1) + column;
-        }
+    // One FP32 value and one pair of BF16 values fit in a four-byte tile row.
+    alignas(64) float accumulator[1][1] = {{1.0F}};
+    alignas(64) uint16_t left[1][2] = {{0x4000, 0x4040}};  // 2.0, 3.0
+    alignas(64) uint16_t right[1][2] = {{0x4080, 0x40a0}}; // 4.0, 5.0
+    alignas(64) float storedResult[1][1] = {};
+
+    alignas(64) TileConfig config = {};
+    config.paletteId = 1;
+    for (uint64_t tile = resultTile; tile <= reloadedTile; ++tile) {
+        config.columnBytes[tile] = sizeof(float);
+        config.rows[tile] = 1;
     }
-
-    // Start near the end of a cache line so the first row crosses into the
-    // next line. We have marked bytes which should reveal writes outside the
-    // tile rows.
-    alignas(64) uint8_t destinationBuffer[256];
-    for (auto &byte : destinationBuffer) {
-        byte = joe;
-    }
-    uint8_t *destination = destinationBuffer + 60;
-
-    alignas(64) TileConfig storeConfig = {};
-    storeConfig.paletteId = 1;
-    storeConfig.columnBytes[tile] = sourceRowBytes;
-    storeConfig.rows[tile] = rows;
-
-    alignas(64) TileConfig verifyConfig = {};
-    verifyConfig.paletteId = 1;
-    verifyConfig.columnBytes[tile] = 36;
-    verifyConfig.rows[tile] = rows;
 
     alignas(64) TileConfig release = {};
 
     m5_work_begin(0, 0);
 
-    amx_tile_loadconfig(&storeConfig);
-    amx_tile_loadd(tile, source, sizeof(source[0]));
+    amx_tile_loadconfig(&config);
+    amx_tile_loadd(resultTile, accumulator, sizeof(accumulator[0]));
+    amx_tile_loadd(leftTile, left, sizeof(left[0]));
+    amx_tile_loadd(rightTile, right, sizeof(right[0]));
 
-    amx_tile_stored(tile, destination, destinationStride);
-    amx_tile_loadconfig(&verifyConfig);
+    // TMM0 = 1 + (2 * 4) + (3 * 5) = 24.
+    amx_tile_dpbf16ps(resultTile, leftTile, rightTile);
+    amx_tile_stored(resultTile, storedResult, sizeof(storedResult[0]));
 
-    amx_tile_loadd(tile, destination - 4, destinationStride);
+    // Reloading the configuration waits for the store to reach memory. It
+    // also clears the tile registers, so TMM3 can only receive the stored 24.
+    amx_tile_loadconfig(&config);
+    amx_tile_loadd(reloadedTile, storedResult, sizeof(storedResult[0]));
     amx_tile_loadconfig(&release);
 
     m5_work_end(0, 0);
