@@ -1,9 +1,16 @@
-# AMX simulator source guide
+# AMX Simulator Source Guide
 
-This directory contains the gem5 SimObject that models Intel AMX tile state,
-instruction scheduling, and timed tile-memory operations. The implementation is
-split by responsibility so that `amx_accl.cc` remains a short overview of the
-simulator's behavior.
+This directory has the gem5 SimObject impleentation that models the intel AMX acceletor. 
+At a high level you can view this as an extension to the execute state of the CPU pipeline.
+
+## Current Implementation Notes 
+gem5 decodes the instruction and passes it here for us to execute. 
+Right now we use the pseduo-insts, to implement this functionality. Eventually the goal is to have the instructions handled completley by the CPU relying on this SimObject only for the tile state, latencies & throughput of the accelerator. 
+
+The implementation is split by responsibility so that `amx_accl.cc` remains a short overview of the simulator's behavior.
+
+**Use the`AMX` debug flag in  gem5 to see queueing, memory, configuration, and tile
+trace messages from this component.**
 
 ## How the pieces fit together
 
@@ -35,6 +42,9 @@ pseudo-instruction
  translate/cache, copy data
         |                          |
         +------------+-------------+
+                     |
+ (wait for both memory & latency to finish)
+                     |
                      v
  amx_execution.cc  finish the operation, release its tile/resource,
                    remove it from the queue, and issue again
@@ -48,8 +58,10 @@ product uses only the fixed-latency branch because it does not access memory.
 Configuration is the exception to this generic path: it is not assigned an
 issue resource or a generic latency deadline. After its memory read drains, a
 separate configuration event enforces `config_latency` measured from its issue
-time.
+time 
+TODO: make configuration follow the same pathway
 
+## File Naming
 `instruction_amx.*` defines what an instruction contains and how dependencies
 between instructions are detected. `resource_amx.*` models how frequently each
 pipeline can accept work. `tile_amx.*` owns the tile registers and tile
@@ -120,26 +132,6 @@ callbacks control when issued work may **finish**. A tile load requires both
 its latency and memory paths to finish; whichever path finishes last completes
 the instruction. Configuration uses its own completion event after its memory
 read drains.
-
-## File responsibilities
-
-| File | Responsibility |
-| --- | --- |
-| `AmxAccl.py` | Declares the Python SimObject, its C++ class, memory-side port, and configurable parameters. |
-| `SConscript` | Registers the SimObject, implementation files, and `AMX` debug flag with the gem5 build. |
-| `amx_accl.hh` | Declares the `AmxAccl` interface and groups its private operations and state by subsystem. It is the shared contract between the implementation files. |
-| `amx_accl.cc` | Contains only the architectural entry points, issue loop, and high-level opcode dispatch. Start here to understand overall behavior. |
-| `amx_sim_object.cc` | Constructs the SimObject, connects it to the CPU, exposes its port, and handles memory-port callbacks. |
-| `instruction_amx.hh` / `instruction_amx.cc` | Define queued instructions, their lifecycle and failure state, factory functions, and tile read/write dependency checks. |
-| `amx_scheduler.cc` | Searches the instruction queue, applies configuration barriers, checks tile hazards and pipeline availability, and manages resource-driven retries. |
-| `resource_amx.hh` / `resource_amx.cc` | Track the next issue cycle and in-flight count for the load, dot-product, zero, and store pipelines. |
-| `dp_math_amx.hh` | Header-only BF16 dot-product operand validation and calculation helpers. |
-| `amx_latency.cc` | Schedules fixed instruction-latency events and sends elapsed instructions to their completion paths. |
-| `amx_execution.cc` | Implements tile load/store, tile configuration, TILEZERO, BF16 dot product, scoreboard updates, and opcode completion. |
-| `amx_memory.cc` | Splits reads and writes at cache-line boundaries, performs address translation, sends timing requests, routes load-response bytes, and detects memory-operation completion. |
-| `tile_amx.hh` / `tile_amx.cc` | Define tile/configuration data, decode and validate configurations, clear tile state, and format tile contents for debug traces. |
-| `amxXbar/` | Contains the Python cache-hierarchy configuration used to connect AMX memory traffic. It is separate from the C++ execution model. |
-| `notes/` | Contains design research and implementation notes; it is not compiled into the simulator. |
 
 ## Instruction lifecycles
 
@@ -283,23 +275,13 @@ tryIssue() remaining work
    the resource is no longer in flight, removes the instruction from the
    queue, and calls `tryIssue()` so newly unblocked work can start.
 
-### TILEZERO
-
-`queueAmxZero()` creates a destination-only instruction. It waits for older
-work on that tile, reserves the tile's write scoreboard entry when it issues,
-and completes after the configured 16-cycle zero latency. Completion clears
-the full tile-register backing storage, releases the write and `TileZero`
-resource reservations, removes the instruction from the queue, and retries
-issuance of dependent work. Clearing the full backing storage ensures inactive
-rows and columns are zero as well as the configured region.
-
 ## Timing model
 
 Latency and issue throughput describe different things:
 
 - **Latency** is how long one operation takes to produce its result.
 - **Issue throughput** is the minimum time before the same pipeline can accept
-  another operation.
+  another operation. (defined by intel)
 
 For example, a dot product may still be in flight when the pipeline becomes
 ready to accept a later independent dot product. If one pipeline is
@@ -344,10 +326,4 @@ different pipeline. `AmxAccl.py` contains the default timing values.
 - Add lifecycle, CPU connection, or port setup in `amx_sim_object.cc`.
 - Add user-configurable SimObject parameters in `AmxAccl.py`.
 
-When adding an opcode, its instruction representation, dependency behavior,
-execution path, completion path, and scoreboard effects should be considered
-together. Tile configuration, tile load/store, TILEZERO, and BF16 dot product
-all have functional completion paths.
 
-Use gem5's `AMX` debug flag to see queueing, memory, configuration, and tile
-trace messages from this component.
