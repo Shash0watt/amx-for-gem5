@@ -1,6 +1,7 @@
+#include <immintrin.h>
 #include "optimized_gemm.h"
 
-// gcc -O3 -mamx-tile -mamx-int8 amx_gemm.c -o amx_matmul (if not inamx machine)
+// gcc -O3 -mamx-tile -mamx-bf16 amx_gemm.c -o amx_matmul (if not inamx machine)
 // gcc -O3 -march=native main.c -o amx_matmul (if in amx machine)
 
 //--- AMX Benchmark Results (Lighthouse)m---
@@ -72,7 +73,7 @@ int main()
 
                     _tile_loadd(1, ptr_a, stride_a);
                     _tile_loadd(2, ptr_b, stride_b);
-                    _tile_dpbssd(0, 1, 2);  // C= A*B+c
+                    _tile_dpbf16ps(0, 1, 2);  // C= A*B+c
                 }
 
                 int32_t *ptr_c = &matrix_c[m * total_cols + n];
