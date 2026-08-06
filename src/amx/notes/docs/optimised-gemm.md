@@ -23,7 +23,6 @@
 
 - apparently you can do loads directly from L2 cache.. (but I haven't implemented that.. should I?) -> It would make 
 
-
 ## Avoid LOAD-to-STORE forwarding stalls. AMX Tileload cannot forward data directly to a STORE.
 ## AMX TDP turns of AVX-512 Port 5 to save power, (Rapdily switching between instructions can cause stalls as port 5 opens and closes)
 
