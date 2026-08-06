@@ -32,11 +32,11 @@ main()
     alignas(64) TileConfig release = {};
 
     // warmup
-    amx_tile_loadconfig(&config);
-    amx_tile_loadd(0, dest_tile, sizeof(dest_tile[0]));
-    amx_tile_loadd(1, tile_a, sizeof(tile_a[0]));
-    amx_tile_loadd(2, tile_b, sizeof(tile_b[0]));
-
+    // amx_tile_loadconfig(&config);
+    // amx_tile_loadd(0, dest_tile, sizeof(dest_tile[0]));
+    // amx_tile_loadd(1, tile_a, sizeof(tile_a[0]));
+    // amx_tile_loadd(2, tile_b, sizeof(tile_b[0]));
+                                                                                                                                       
     m5_work_begin(0, 0);
     amx_tile_loadconfig(&config);
     amx_tile_loadd(0, dest_tile, sizeof(dest_tile[0]));

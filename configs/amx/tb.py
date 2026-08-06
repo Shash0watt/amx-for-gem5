@@ -28,7 +28,7 @@ parser = argparse.ArgumentParser(description="Run one asynchronous AMX test")
 parser.add_argument(
     "--binary",
     type=Path,
-    default=Path("configs/amx/binaries/tile_config_shape_respect_test"),
+    default=Path("configs/amx/binaries/gem5_gemm"),
     help="path to the AMX test binary",
 )
 args = parser.parse_args()
@@ -77,7 +77,7 @@ cache_hierarchy = AmxPrivateL1PrivateL2CacheHierarchy(
 
 # Setup the board (SimpleBoard is specifically used for SE mode)
 board = SimpleBoard(
-    clk_freq="1GHz",
+    clk_freq="2.9GHz",
     processor=processor,
     memory=memory,
     cache_hierarchy=cache_hierarchy,

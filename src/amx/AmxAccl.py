@@ -14,7 +14,7 @@ class AmxAccl(ClockedObject):
 
     # intel amx optimization manual table 20-2 reports about 204 cycles.
     config_latency = Param.Cycles(
-        204, "minimum issue-to-completion latency for tile configuration"
+        105, "minimum issue-to-completion latency for tile configuration"
     )
 
     load_issue_throughput = Param.Cycles(
@@ -22,7 +22,7 @@ class AmxAccl(ClockedObject):
     )
 
     load_latency = Param.Cycles(
-        45, "minimum issue-to-completion latency for tile load instructions"
+        1, "minimum issue-to-completion latency for tile load instructions"
     )
 
     dp_issue_throughput = Param.Cycles(
