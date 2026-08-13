@@ -97,6 +97,7 @@ AmxAccl::instructionLatencyElapsed(uint64_t instruction_id)
             completeStoreIfReady(instruction_id);
             return;
         case AmxOpcode::Config:
+        case AmxOpcode::DumpState:
             break;
     }
 

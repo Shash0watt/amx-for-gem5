@@ -77,7 +77,7 @@ cache_hierarchy = AmxPrivateL1PrivateL2CacheHierarchy(
 
 # Setup the board (SimpleBoard is specifically used for SE mode)
 board = SimpleBoard(
-    clk_freq="1GHz",
+    clk_freq="2.9GHz",
     processor=processor,
     memory=memory,
     cache_hierarchy=cache_hierarchy,
@@ -91,24 +91,45 @@ board.set_se_binary_workload(
 # ./[path to gem5] --debug-help gives more flag that we can use
 
 
-def workbegin_handler():
-    print("\n--- Start of AMX ROI ---\n")
+start_tick = 0
 
-    # Enable ExecAll here to trace instructions ONLY in your region of interest
-    # This prevents the terminal from being flooded with standard C-library setup instructions.
-    # m5.debug.flags["ExecAll"].enable()
-    # m5.debug.flags["Cache"].enable()
-    # m5.debug.flags["PseudoInst"].enable()
+
+def get_clk_period_ticks():
+    try:
+        return board.clk_domain.clock[0].value
+    except Exception:
+        return 344.8275862  # Fallback for 2.9 GHz (10^12 ticks/sec / 2.9*10^9 Hz)
+
+
+def workbegin_handler():
+    global start_tick
+    start_tick = m5.curTick()
+    clk_period = get_clk_period_ticks()
+    start_cycle = int(start_tick / clk_period)
+    print(f"\n--- Start of AMX ROI (Tick: {start_tick}, Cycle: {start_cycle}) ---\n")
+
     m5.debug.flags["AMX"].enable()
 
     yield False  # Yielding False tells the simulator to continue running
 
 
 def workend_handler():
-    print("\n--- AMX submissions complete; draining asynchronous work ---\n")
+    end_tick = m5.curTick()
+    clk_period = get_clk_period_ticks()
+    start_cycle = int(start_tick / clk_period)
+    end_cycle = int(end_tick / clk_period)
 
-    # Each test schedules its own delayed exit before quiescing. Continue here
-    # so AMX completion events run until that exit occurs.
+    elapsed_ticks = end_tick - start_tick
+    elapsed_cycles = end_cycle - start_cycle
+
+    print("\n--- AMX Submissions Complete ---\n")
+    print(f"ROI Start Tick    : {start_tick}")
+    print(f"ROI End Tick      : {end_tick}")
+    print(f"ROI Elapsed Ticks : {elapsed_ticks}")
+    print(f"ROI Start Cycle   : {start_cycle}")
+    print(f"ROI End Cycle     : {end_cycle}")
+    print(f"ROI Total Cycles  : {elapsed_cycles}\n")
+
     yield False
 
 

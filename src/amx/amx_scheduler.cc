@@ -22,9 +22,9 @@ AmxAccl::findReadyInstruction()
     // Search in program order, from oldest to youngest.
     for (AmxInst &instruction : instructionQueue) {
 
-        // Configuration changes how every tile is interpreted, so nothing may
-        // pass it. It can issue only from the front with all tiles idle.
-        if (instruction.opcode == AmxOpcode::Config) {
+        // Full barriers issue only from the front after older tile activity
+        // has drained. A blocked barrier also stops all younger work.
+        if (instruction.isBarrier()) {
             const bool is_front = &instruction == &instructionQueue.front();
             if (instruction.state == AmxInst::State::Pending && is_front &&
                 allTilesIdle()) {
@@ -75,6 +75,7 @@ AmxAccl::issueResource(const AmxInst &instruction) const
     // Map each opcode to the independent pipeline that accepts it.
     switch (instruction.opcode) {
         case AmxOpcode::Config:
+        case AmxOpcode::DumpState:
             return std::nullopt;
         case AmxOpcode::Load:
             return AmxResource::TileLoad;
@@ -103,6 +104,7 @@ AmxAccl::instructionLatency(const AmxInst &instruction) const
         case AmxOpcode::Store:
             return storeLatency;
         case AmxOpcode::Config:
+        case AmxOpcode::DumpState:
             break;
     }
 

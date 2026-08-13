@@ -128,6 +128,17 @@ AmxAccl::queueAmxZero(uint64_t destination)
     tryIssue();
 }
 
+void
+AmxAccl::queueAmxDumpState(const std::string &name)
+{
+    const uint64_t id = nextInstructionId++;
+    instructionQueue.push_back(AmxInst::dumpState(id, name));
+
+    DPRINTF(AMX, "Queued state dump %llu\n",
+            static_cast<unsigned long long>(id));
+    tryIssue();
+}
+
 // -------------------------------------------------------------------------
 // Issue and high-level execution flow
 // -------------------------------------------------------------------------
@@ -205,6 +216,9 @@ AmxAccl::executeInstruction(AmxInst *instruction)
             return;
         case AmxOpcode::Store:
             executeStoreInstruction(instruction);
+            return;
+        case AmxOpcode::DumpState:
+            executeDumpStateInstruction(instruction);
             return;
     }
 

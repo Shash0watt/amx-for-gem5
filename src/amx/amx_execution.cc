@@ -1,3 +1,5 @@
+#include <filesystem>
+#include <fstream>
 #include <limits>
 
 #include "amx/amx_accl.hh"
@@ -265,6 +267,75 @@ AmxAccl::commitTileConfig(const amx::TileConfig &config)
 
     // Both palette transitions architecturally clear all tile data.
     amx::clearTiles(tiles);
+}
+
+// -------------------------------------------------------------------------
+// State-dump for debugging
+// -------------------------------------------------------------------------
+
+void
+AmxAccl::executeDumpStateInstruction(AmxInst *instruction)
+{
+    panic_if(!instruction || instruction->opcode != AmxOpcode::DumpState,
+             "AMX state dump execution received the wrong instruction");
+    panic_if(instructionQueue.empty() ||
+                 &instructionQueue.front() != instruction,
+             "AMX state dump issued away from the queue front");
+    panic_if(!allTilesIdle(), "AMX state dump issued while a tile is active");
+
+    std::filesystem::create_directories(dumpDirectory);
+    const std::filesystem::path output_path =
+        std::filesystem::path(dumpDirectory) /
+        (instruction->dumpName + ".txt");
+    std::ofstream stream(output_path);
+    panic_if(!stream, "Could not open AMX state dump %s",
+             output_path.string());
+    writeStateDump(stream, instruction->dumpName);
+
+    instruction->state = AmxInst::State::Completed;
+    const uint64_t completed_id = instruction->id;
+    DPRINTF(AMX, "Wrote state dump %llu to %s\n",
+            static_cast<unsigned long long>(completed_id),
+            output_path.string());
+    eraseInstruction(completed_id);
+}
+
+void
+AmxAccl::writeStateDump(std::ostream &stream,
+                        const std::string &dump_name) const
+{
+    stream << "AMX STATE DUMP: " << dump_name << "\n\n"
+           << "Simulation\n"
+           << "  Tick        : " << curTick() << '\n'
+           << "  Cycle       : " << curCycle() << '\n'
+           << "  Accelerator : " << name() << "\n\n"
+           << "Tile Configuration\n"
+           << "  Configured  : " << (tilesConfigured ? "yes" : "no") << '\n'
+           << "  Palette ID  : "
+           << static_cast<unsigned>(currentConfig.paletteId) << '\n'
+           << "  Start Row   : "
+           << static_cast<unsigned>(currentConfig.startRow) << "\n\n"
+           << "Tile Registers (values shown as BF16)\n";
+
+    for (int tile = 0; tile < NUM_TILES; ++tile) {
+        const uint8_t rows = currentConfig.rows[tile];
+        const uint16_t column_bytes = currentConfig.columnBytes[tile];
+
+        if (!tilesConfigured || rows == 0 || column_bytes == 0) {
+            stream << "\nTMM" << tile << " - UNCONFIGURED\n"
+                   << "  Rows         : " << static_cast<unsigned>(rows)
+                   << '\n'
+                   << "  Column bytes : " << column_bytes << '\n';
+            continue;
+        }
+
+        stream << "\nTMM" << tile << " - ACTIVE\n"
+               << "  Rows         : " << static_cast<unsigned>(rows) << '\n'
+               << "  Column bytes : " << column_bytes << '\n';
+        amx::traceBFloat16Tile(stream, currentConfig, tiles, tile);
+    }
+
+    stream << '\n';
 }
 
 // -------------------------------------------------------------------------
