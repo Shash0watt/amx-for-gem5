@@ -1,0 +1,26 @@
+basic gemm 16x32 * 32x16 cycle: 213.71
+
+32x32
+bf16_gemm_none average cycles: 550.96
+bf16_gemm_low average cycles: 482.42
+bf16_gemm_med average cycles: 473.24
+
+64x64
+bf16_gemm_none average cycles: 3324.52
+bf16_gemm_low average cycles: 2691.36
+bf16_gemm_med average cycles: 2534.88
+
+128x128
+bf16_gemm_none average cycles: 24068.76
+bf16_gemm_low average cycles: 18709.46
+bf16_gemm_med average cycles: 18333.14
+
+256x256
+bf16_gemm_none average cycles: 229036.00
+bf16_gemm_low average cycles: 146845.60
+bf16_gemm_med average cycles: 132929.26
+
+1024x1024
+bf16_gemm_none average cycles: 25408200.02
+bf16_gemm_low average cycles: 13512805.28
+bf16_gemm_med average cycles: 13897795.86

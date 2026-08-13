@@ -12,6 +12,7 @@ amx-for-gem5/
 ├── src/        
 │   ├── amx/                    (Custom Intel AMX accelerator SimObject)
 |   |   ├── README.md           (gem5 implementation specifics)
+|   |   └── notes/              (Notes on Intel AMX and gem5)
 │   ├── cpu/    
 │   │   ├── o3/   
 │   │   │   └── lsq.cc          (Modified LSQ to intercept AMX packets)
