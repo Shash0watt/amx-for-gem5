@@ -120,23 +120,27 @@ TILELOAD cannot forward data directly from CPU store buffers; it must wait until
 
 # Hardware & Microarchitecture Insights for Modeling Intel AMX
 
-- **Executes Synchronously and Contends for ROB/RS Entries** (Section 20.11.2)
-  - Synchronous OoO Execution: AMX instructions (LDTILECFG, TILELOADD, TDP*, TILESTORED) are decoded, issued, and tracked within the core's standard Out-of-Order pipeline (ROB, RS, and LSQ). They are not an asynchronous/off-core accelerator.
-  - ROB/RS Pressure: Heavy AMX + vector loops can exhaust out-of-order execution resources if not software-pipelined.
+- **Executes Synchronously and Contends for OoO Machine Resources** (Section 20.11.2)
+  - Synchronous In-Core Execution: AMX instructions (LDTILECFG, TILELOADD, TDP, TILESTORED) are decoded, issued, and tracked within the core's standard Out-of-Order pipeline (ROB, RS, and LSQ). AMX is integrated into the core rather than acting as an asynchronous off-core accelerator.
+  - Out-of-Order Resource Pressure: Large unpipelined matrix multiplication and vector post-processing blocks can exhaust core out-of-order execution resources (ROB/RS entries), which is why software pipelining/interleaving is required.
 
-- **Pipelines TMUL and Memory Units with Fixed Multi-Cycle Latencies and Throughputs** (Section 20.3)
-  - Pipelined Compute (TDP*): Latency = 52 cycles, Throughput = 16 cycles. A new matrix multiply can dispatch every 16 cycles while previous calculations complete across internal pipeline stages.
-  - This makes sense with their claim of 2048 int ops per second : 
+- **Pipelines TMUL and Memory Units with Fixed Latencies and Throughputs** (Section 20.3, Table 20-2)
+  - Fixed Latency & Throughput Profile:
+    - TDP*: Latency = 52 cycles, Throughput = 16 cycles.
+    - This makes sense with their claim of 2048 int ops per second : 
     - 16 × 16 × 64 MACs possible with tiles of int8s
     - 2ops/MAC -? 16 × 16 × 64 × 2 = 32,768 INT8 operations
     - 32,768 operations / 16 cycle wait = 2048 INT8 ops/cycle
-- **Stalls Tile Loads on Store Buffer Conflicts Without Direct Store-to-Load Forwarding** (Section 20.15)
-  - No Store-Buffer Forwarding to TILELOAD: TILELOAD cannot bypass data directly from CPU store buffers. If an address overlap occurs, hardware stalls until the store buffer drains to L1 (DCU).
-  - Store Forwarding from TILESTORED: Forwarding from TILESTORED to scalar/vector loads is restricted to 64-byte aligned chunks and suffers performance outliers (requires tens of cycles separation).
 
-- **Latches Inputs to Allow Early Register Overwrites** (Section 20.20)
-  - Scoreboarding & Latching: Dependency tracking allows a source tile register (tmmX) to be reloaded (TILELOADD) before a preceding TDP* completes its 52-cycle latency, once inputs are latched into the TMUL compute pipeline.
+- **Stalls Tile Loads on Store Buffer Conflicts Without Direct Forwarding** (Section 20.15)
+  - No Store-Buffer Forwarding to TILELOAD: Unlike scalar/vector loads, TILELOAD cannot bypass data directly from CPU store buffers. If an address overlap occurs with an in-flight store, hardware stalls until the store buffer drains to the L1 Data Cache (DCU).
+  - Restricted Forwarding from TILESTORED: Forwarding from TILESTORED to regular scalar/vector loads is supported only for 64-byte (cache-line) aligned chunks and has performance outliers (requires tens of cycles separation).
+
+- **Resolves WAR Dependencies to Allow Early Source Register Overwrites** (Sections 20.3 & 20.11, Examples 20-21/20-22)
+  - Write-After-Read (WAR) Handling: As shown in optimized assembly listings (Examples 20-21 & 20-22), software can issue a TILELOADD into a source tile register (tmmX) immediately after a TDP* that reads tmmX, without waiting for the 52-cycle compute latency.
+  - Microarchitectural Rationale: Because the core operates out-of-order and the TMUL execution pipeline consumes/reads source operands upon dispatch, source registers are freed for new loads as soon as operand access completes.
 
 
 ---
 *Note: I haven't include some topics (convolutions, transpose kernels, OpenMP multithreading) aren't relvant to my sim implementation.*
+
