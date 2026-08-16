@@ -147,9 +147,11 @@ AmxAccl::executeLoadInstruction(AmxInst *instruction)
     // make the split memory requests
     for (uint8_t row = 0;
          row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
-        dispatchMemoryRead(instruction,
-                           tileRowAddress(*instruction, row, row_bytes),
-                           row_bytes, MemoryTarget::TileRow, tile, row);
+        dispatchMemoryRead(
+            instruction,
+            tileRowAddress(*instruction, row, row_bytes),
+            row_bytes,
+            reinterpret_cast<uint8_t *>(tiles[tile].data[row]));
     }
 
     // mark the end of making requests
@@ -216,7 +218,7 @@ AmxAccl::executeConfigInstruction(AmxInst *instruction)
     instruction->configData.fill(0);
 
     dispatchMemoryRead(instruction, instruction->address, TILE_CONFIG_BYTES,
-                       MemoryTarget::TileConfig);
+                       instruction->configData.data());
     finishMemoryDispatch(instruction);
 }
 
@@ -523,9 +525,11 @@ AmxAccl::executeStoreInstruction(AmxInst *instruction)
 
     for (uint8_t row = start_row;
          row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
-        dispatchMemoryWrite(instruction,
-                            tileRowAddress(*instruction, row, row_bytes),
-                            row_bytes, tile, row);
+        dispatchMemoryWrite(
+            instruction,
+            tileRowAddress(*instruction, row, row_bytes),
+            row_bytes,
+            reinterpret_cast<const uint8_t *>(tiles[tile].data[row]));
     }
 
     finishMemoryDispatch(instruction);
