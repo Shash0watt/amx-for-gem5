@@ -1,0 +1,44 @@
+AMX STATE DUMP: tilezero
+
+Simulation
+
+Tile Configuration
+  Configured  : yes
+  Palette ID  : 1
+  Start Row   : 0
+
+Tile Registers (values shown as BF16)
+
+TMM0 - ACTIVE
+  Rows         : 1
+  Column bytes : 8
+ Row [00]:          0          0          0          0
+
+TMM1 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+
+TMM2 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+
+TMM3 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+
+TMM4 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+
+TMM5 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+
+TMM6 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+
+TMM7 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+

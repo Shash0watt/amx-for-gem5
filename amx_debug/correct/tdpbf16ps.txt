@@ -1,0 +1,46 @@
+AMX STATE DUMP: tdpbf16ps
+
+Simulation
+
+Tile Configuration
+  Configured  : yes
+  Palette ID  : 1
+  Start Row   : 0
+
+Tile Registers (values shown as BF16)
+
+TMM0 - ACTIVE
+  Rows         : 1
+  Column bytes : 4
+ Row [00]:          0         24
+
+TMM1 - ACTIVE
+  Rows         : 1
+  Column bytes : 4
+ Row [00]:          2          3
+
+TMM2 - ACTIVE
+  Rows         : 1
+  Column bytes : 4
+ Row [00]:          4          5
+
+TMM3 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+
+TMM4 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+
+TMM5 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+
+TMM6 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+
+TMM7 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+

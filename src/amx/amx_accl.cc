@@ -129,10 +129,10 @@ AmxAccl::queueAmxZero(uint64_t destination)
 }
 
 void
-AmxAccl::queueAmxDumpState(const std::string &name)
+AmxAccl::queueAmxDumpState(const std::string &dump_name)
 {
     const uint64_t id = nextInstructionId++;
-    instructionQueue.push_back(AmxInst::dumpState(id, name));
+    instructionQueue.push_back(AmxInst::dumpState(id, dump_name));
 
     DPRINTF(AMX, "Queued state dump %llu\n",
             static_cast<unsigned long long>(id));

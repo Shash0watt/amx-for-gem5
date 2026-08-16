@@ -31,6 +31,12 @@ parser.add_argument(
     default=Path("configs/amx/binaries/tile_config_shape_respect_test"),
     help="path to the AMX test binary",
 )
+parser.add_argument(
+    "--dump-directory",
+    type=Path,
+    default=Path("amx_debug"),
+    help="directory for AMX state dump files",
+)
 args = parser.parse_args()
 
 binary_path = args.binary
@@ -53,7 +59,9 @@ processor = SimpleProcessor(
 # we iterate through the cores and attach our accelerator
 # directly to the underlying BaseCPU (core.core).
 for core in processor.cores:
-    core.core.amx_accl = AmxAccl()
+    core.core.amx_accl = AmxAccl(
+        dump_directory=args.dump_directory.as_posix()
+    )
 
     # comment out if not out of order
     core.core.decodeWidth = 6

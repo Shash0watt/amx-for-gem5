@@ -42,5 +42,6 @@ typings
 .continue
 configs/amx/implementation_plan.md
 /configs/amx/binaries/
+/amx_debug/actual/
 .agents/
 /AGENTS.md
