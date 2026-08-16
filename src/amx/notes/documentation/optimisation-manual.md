@@ -138,7 +138,7 @@ TILELOAD cannot forward data directly from CPU store buffers; it must wait until
 
 - **Resolves WAR Dependencies to Allow Early Source Register Overwrites** (Sections 20.3 & 20.11, Examples 20-21/20-22)
   - Write-After-Read (WAR) Handling: As shown in optimized assembly listings (Examples 20-21 & 20-22), software can issue a TILELOADD into a source tile register (tmmX) immediately after a TDP* that reads tmmX, without waiting for the 52-cycle compute latency.
-  - Microarchitectural Rationale: Because the core operates out-of-order and the TMUL execution pipeline consumes/reads source operands upon dispatch, source registers are freed for new loads as soon as operand access completes.
+  - Because the core operates out-of-order and the TMUL execution pipeline consumes/reads source operands upon dispatch, source registers are freed for new loads as soon as operand access completes.
 
 
 ---
