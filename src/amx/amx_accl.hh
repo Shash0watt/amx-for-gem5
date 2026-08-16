@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <iosfwd>
 #include <map>
 #include <optional>
 #include <string>
@@ -64,6 +65,7 @@ class AmxAccl : public ClockedObject
     void queueAmxDotProduct(uint64_t dest_tile, uint64_t tile_a,
                             uint64_t tile_b);
     void queueAmxZero(uint64_t destination);
+    void queueAmxDumpState(const std::string &dump_name);
     void tryIssue();
 
   private:
@@ -163,6 +165,9 @@ class AmxAccl : public ClockedObject
     void executeDotProductInstruction(AmxInst *instruction);
     void executeZeroInstruction(AmxInst *instruction);
     void executeStoreInstruction(AmxInst *instruction);
+    void executeDumpStateInstruction(AmxInst *instruction);
+    void writeStateDump(std::ostream &stream,
+                        const std::string &dump_name) const;
     void completeLoadIfReady(uint64_t instruction_id);
     void completeLoadInstruction(AmxInst *instruction);
     void completeStoreIfReady(uint64_t instruction_id);
@@ -215,6 +220,7 @@ class AmxAccl : public ClockedObject
     amx::TileConfig currentConfig;
     amx::TileRegisterFile tiles;
     bool tilesConfigured;
+    const std::string dumpDirectory;
 
     const Cycles configLatency;
     const Cycles loadLatency;

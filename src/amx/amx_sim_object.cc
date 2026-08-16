@@ -16,6 +16,7 @@ AmxAccl::AmxAccl(const AmxAcclParams &params)
       cpu(nullptr),
       currentConfig{},
       tilesConfigured(false),
+      dumpDirectory(params.dump_directory),
       configLatency(params.config_latency),
       loadLatency(params.load_latency),
       dotProductLatency(params.dp_latency),

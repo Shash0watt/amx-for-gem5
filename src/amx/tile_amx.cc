@@ -156,6 +156,22 @@ traceInt8Tile(const TileConfig &config, const TileRegisterFile &tiles,
     appendTileHeader(stream, tile_idx, active_rows, active_columns,
                      "Column Bytes");
 
+    traceInt8Tile(stream, config, tiles, tile_idx);
+    stream << TileBorder;
+
+    DPRINTF(AMX, "%s\n", stream.str().c_str());
+}
+
+void
+traceInt8Tile(std::ostream &stream, const TileConfig &config,
+              const TileRegisterFile &tiles, uint8_t tile_idx)
+{
+    panic_if(tile_idx >= NumTiles, "AMX printer: tile index %d out of bounds!",
+             tile_idx);
+
+    const uint16_t active_rows = config.rows[tile_idx];
+    const uint16_t active_columns = config.columnBytes[tile_idx];
+
     for (uint8_t row = 0; row < active_rows; ++row) {
         appendRowLabel(stream, row);
         for (uint16_t column = 0; column < active_columns; ++column) {
@@ -168,9 +184,6 @@ traceInt8Tile(const TileConfig &config, const TileRegisterFile &tiles,
         }
         stream << '\n';
     }
-    stream << TileBorder;
-
-    DPRINTF(AMX, "%s\n", stream.str().c_str());
 }
 
 void
@@ -188,6 +201,23 @@ traceInt32Tile(const TileConfig &config, const TileRegisterFile &tiles,
     appendTileHeader(stream, tile_idx, active_rows, active_columns,
                      "Column Int32s");
 
+    traceInt32Tile(stream, config, tiles, tile_idx);
+    stream << TileBorder;
+
+    DPRINTF(AMX, "%s\n", stream.str().c_str());
+}
+
+void
+traceInt32Tile(std::ostream &stream, const TileConfig &config,
+               const TileRegisterFile &tiles, uint8_t tile_idx)
+{
+    panic_if(tile_idx >= NumTiles, "AMX printer: tile index %d out of bounds!",
+             tile_idx);
+
+    const uint16_t active_rows = config.rows[tile_idx];
+    const uint16_t active_columns =
+        config.columnBytes[tile_idx] / sizeof(int32_t);
+
     for (uint8_t row = 0; row < active_rows; ++row) {
         appendRowLabel(stream, row);
         for (uint16_t column = 0; column < active_columns; ++column) {
@@ -203,9 +233,6 @@ traceInt32Tile(const TileConfig &config, const TileRegisterFile &tiles,
         }
         stream << '\n';
     }
-    stream << TileBorder;
-
-    DPRINTF(AMX, "%s\n", stream.str().c_str());
 }
 
 void
@@ -223,17 +250,33 @@ traceBFloat16Tile(const TileConfig &config, const TileRegisterFile &tiles,
     appendTileHeader(stream, tile_idx, active_rows, active_columns,
                      "Column BF16s");
 
+    traceBFloat16Tile(stream, config, tiles, tile_idx);
+    stream << TileBorder;
+
+    DPRINTF(AMX, "%s\n", stream.str().c_str());
+}
+
+void
+traceBFloat16Tile(std::ostream &stream, const TileConfig &config,
+                  const TileRegisterFile &tiles, uint8_t tile_idx)
+{
+    panic_if(tile_idx >= NumTiles, "AMX printer: tile index %d out of bounds!",
+             tile_idx);
+
+    const uint16_t active_rows = config.rows[tile_idx];
+    const uint16_t active_columns =
+        config.columnBytes[tile_idx] / sizeof(uint16_t);
+
     for (uint8_t row = 0; row < active_rows; ++row) {
         appendRowLabel(stream, row);
         for (uint16_t column = 0; column < active_columns; ++column) {
             uint16_t bfloat_bits = 0;
-            std::memcpy(
-                &bfloat_bits,
-                &tiles[tile_idx].data[row][column * sizeof(uint16_t)],
-                sizeof(bfloat_bits));
+            std::memcpy(&bfloat_bits,
+                        &tiles[tile_idx].data[row][column * sizeof(uint16_t)],
+                        sizeof(bfloat_bits));
 
-            const uint32_t float_bits =
-                static_cast<uint32_t>(bfloat_bits) << 16;
+            const uint32_t float_bits = static_cast<uint32_t>(bfloat_bits)
+                                        << 16;
             float value = 0.0F;
             std::memcpy(&value, &float_bits, sizeof(value));
 
@@ -244,9 +287,6 @@ traceBFloat16Tile(const TileConfig &config, const TileRegisterFile &tiles,
         }
         stream << '\n';
     }
-    stream << TileBorder;
-
-    DPRINTF(AMX, "%s\n", stream.str().c_str());
 }
 
 void
@@ -264,6 +304,23 @@ traceFloat32Tile(const TileConfig &config, const TileRegisterFile &tiles,
     appendTileHeader(stream, tile_idx, active_rows, active_columns,
                      "Column FP32s");
 
+    traceFloat32Tile(stream, config, tiles, tile_idx);
+    stream << TileBorder;
+
+    DPRINTF(AMX, "%s\n", stream.str().c_str());
+}
+
+void
+traceFloat32Tile(std::ostream &stream, const TileConfig &config,
+                 const TileRegisterFile &tiles, uint8_t tile_idx)
+{
+    panic_if(tile_idx >= NumTiles, "AMX printer: tile index %d out of bounds!",
+             tile_idx);
+
+    const uint16_t active_rows = config.rows[tile_idx];
+    const uint16_t active_columns =
+        config.columnBytes[tile_idx] / sizeof(float);
+
     for (uint8_t row = 0; row < active_rows; ++row) {
         appendRowLabel(stream, row);
         for (uint16_t column = 0; column < active_columns; ++column) {
@@ -278,9 +335,6 @@ traceFloat32Tile(const TileConfig &config, const TileRegisterFile &tiles,
         }
         stream << '\n';
     }
-    stream << TileBorder;
-
-    DPRINTF(AMX, "%s\n", stream.str().c_str());
 }
 
 } // namespace amx

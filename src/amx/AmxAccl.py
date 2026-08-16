@@ -12,6 +12,10 @@ class AmxAccl(ClockedObject):
 
     mem_side = RequestPort("AMX memory-side port for tile loads and stores")
 
+    dump_directory = Param.String(
+        "amx_debug", "directory for AMX state dump files"
+    )
+
     # intel amx optimization manual table 20-2 reports about 204 cycles.
     config_latency = Param.Cycles(
         105, "minimum issue-to-completion latency for tile configuration"

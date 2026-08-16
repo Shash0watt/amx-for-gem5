@@ -23,7 +23,8 @@ enum class Opcode
     Load,
     DotProduct,
     Zero,
-    Store
+    Store,
+    DumpState
 };
 
 struct Instruction
@@ -56,9 +57,11 @@ struct Instruction
     static Instruction tileDotProduct(uint64_t id, uint8_t destination,
                                       uint8_t source1, uint8_t source2);
     static Instruction tileZero(uint64_t id, uint8_t destination);
+    static Instruction dumpState(uint64_t id, const std::string &name);
 
     bool readsTile(int tile) const;
     bool writesTile(int tile) const;
+    bool isBarrier() const;
 
     // Test accesses to one tile. The first access belongs to the younger
     // instruction and the second belongs to the older instruction.
@@ -80,6 +83,7 @@ struct Instruction
     uint64_t address;
     size_t stride;
     ThreadContext *threadContext;
+    std::string dumpName;
 
     uint32_t outstandingTranslations = 0;
     uint32_t outstandingRequests = 0;

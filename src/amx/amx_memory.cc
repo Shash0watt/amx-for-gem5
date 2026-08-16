@@ -513,6 +513,7 @@ AmxAccl::completeMemoryStageIfReady(uint64_t instruction_id)
             break;
         case AmxOpcode::DotProduct:
         case AmxOpcode::Zero:
+        case AmxOpcode::DumpState:
             panic("AMX non-memory instruction reached memory completion");
     }
 

@@ -118,7 +118,7 @@ void amxDotProduct(ThreadContext *tc, uint64_t dest_tile, uint64_t tile_a, uint6
 void amxTileZero(ThreadContext *tc, uint64_t dest_tile);
 void amxTileStore(ThreadContext *tc, uint64_t src_tile, GuestAddr base,
                   size_t stride);
-
+void amxDumpState(ThreadContext *tc, GuestAddr name_addr);
 
 /**
  * Execute a decoded M5 pseudo instruction
@@ -273,6 +273,10 @@ pseudoInstWork(ThreadContext *tc, uint8_t func, uint64_t &result)
 
         case AMX_TILE_STORED:
             invokeSimcall<ABI>(tc, amxTileStore);
+            return true;
+
+        case AMX_DUMP_STATE:
+            invokeSimcall<ABI>(tc, amxDumpState);
             return true;
 
         case M5OP_HYPERCALL:

@@ -698,6 +698,25 @@ amxTileStore(ThreadContext *tc, uint64_t src_tile, GuestAddr base,
     }
 }
 
+void
+amxDumpState(ThreadContext *tc, GuestAddr name_addr)
+{
+    std::string name;
+    TranslatingPortProxy fs_proxy(tc);
+    SETranslatingPortProxy se_proxy(tc);
+    PortProxy &virt_proxy = FullSystem ? fs_proxy : se_proxy;
+    virt_proxy.readString(name, name_addr.addr);
+
+    BaseCPU *cpu = tc->getCpuPtr();
+    AmxAccl *accl = cpu->getAmxAccl();
+
+    if (accl) {
+        accl->queueAmxDumpState(name);
+    } else {
+        panic("amxDumpState executed without an attached AMX accelerator");
+    }
+}
+
 // void
 // amxLoadd(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem, size_t
 // stride)

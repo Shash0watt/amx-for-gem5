@@ -56,6 +56,14 @@ Instruction::tileZero(uint64_t id, uint8_t destination)
                        nullptr);
 }
 
+Instruction
+Instruction::dumpState(uint64_t id, const std::string &name)
+{
+    Instruction instruction(id, Opcode::DumpState, -1, -1, -1, 0, 0, nullptr);
+    instruction.dumpName = name;
+    return instruction;
+}
+
 bool
 Instruction::readsTile(int tile) const
 {
@@ -71,6 +79,12 @@ Instruction::writesTile(int tile) const
 {
     return (opcode == Opcode::Load || opcode == Opcode::DotProduct ||
             opcode == Opcode::Zero) && destination == tile;
+}
+
+bool
+Instruction::isBarrier() const
+{
+    return opcode == Opcode::Config || opcode == Opcode::DumpState;
 }
 
 bool

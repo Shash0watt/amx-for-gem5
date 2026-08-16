@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <iosfwd>
 #include <string>
 
 namespace gem5
@@ -49,12 +50,20 @@ void clearTiles(TileRegisterFile &tiles);
 
 void traceInt8Tile(const TileConfig &config, const TileRegisterFile &tiles,
                    uint8_t tile_idx);
+void traceInt8Tile(std::ostream &stream, const TileConfig &config,
+                   const TileRegisterFile &tiles, uint8_t tile_idx);
 void traceBFloat16Tile(const TileConfig &config, const TileRegisterFile &tiles,
                        uint8_t tile_idx);
+void traceBFloat16Tile(std::ostream &stream, const TileConfig &config,
+                       const TileRegisterFile &tiles, uint8_t tile_idx);
 void traceInt32Tile(const TileConfig &config, const TileRegisterFile &tiles,
                     uint8_t tile_idx);
+void traceInt32Tile(std::ostream &stream, const TileConfig &config,
+                    const TileRegisterFile &tiles, uint8_t tile_idx);
 void traceFloat32Tile(const TileConfig &config, const TileRegisterFile &tiles,
                       uint8_t tile_idx);
+void traceFloat32Tile(std::ostream &stream, const TileConfig &config,
+                      const TileRegisterFile &tiles, uint8_t tile_idx);
 
 } // namespace amx
 } // namespace gem5
