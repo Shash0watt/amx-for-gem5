@@ -83,25 +83,7 @@ AmxAccl::instructionLatencyElapsed(uint64_t instruction_id)
     DPRINTF(AMX, "Instruction %llu reached its execution latency\n",
             static_cast<unsigned long long>(instruction_id));
 
-    switch (instruction->opcode) {
-        case AmxOpcode::Load:
-            completeLoadIfReady(instruction_id);
-            return;
-        case AmxOpcode::DotProduct:
-            finishDotProductInstruction(instruction_id);
-            return;
-        case AmxOpcode::Zero:
-            finishZeroInstruction(instruction_id);
-            return;
-        case AmxOpcode::Store:
-            completeStoreIfReady(instruction_id);
-            return;
-        case AmxOpcode::Config:
-        case AmxOpcode::DumpState:
-            break;
-    }
-
-    panic("AMX configuration used the generic latency event");
+    completeInstructionIfReady(instruction_id);
 }
 
 } // namespace gem5

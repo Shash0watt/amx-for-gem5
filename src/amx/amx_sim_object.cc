@@ -26,10 +26,6 @@ AmxAccl::AmxAccl(const AmxAcclParams &params)
                       params.dp_issue_throughput,
                       params.zero_issue_throughput,
                       params.store_issue_throughput),
-      configCompletionEvent(
-          [this] { processConfigCompletionEvent(); },
-          name() + ".config_completion"),
-      pendingConfigInstructionId(0),
       issueRetryEvent(
           [this] { processIssueRetryEvent(); }, name() + ".issue_retry"),
       latencyEvent(
@@ -37,12 +33,6 @@ AmxAccl::AmxAccl(const AmxAcclParams &params)
 {
     amx::clearTiles(tiles);
     DPRINTF(AMX, "Created the AMX SimObject\n");
-}
-
-void
-AmxAccl::processConfigCompletionEvent()
-{
-    finishConfigInstruction(pendingConfigInstructionId);
 }
 
 void

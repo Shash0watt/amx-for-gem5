@@ -177,19 +177,14 @@ AmxAccl::executeInstruction(AmxInst *instruction)
              "AMX scheduler selected an invalid queue entry");
     panic_if(!cpu, "AMX instruction issued without an attached CPU");
 
+    // Track issue time
+    const Cycles now = curCycle();
+    instruction->issueTick = curTick();
+
     // resource utilization tracking
     const std::optional<AmxResource> resource = issueResource(*instruction);
     if (resource) {
-        // figure out when this instruction issued
-        const Cycles now = curCycle();
-        instruction->issueTick = curTick();
         resourceTracker.issue(*resource, now); // mark resource as used
-        instruction->latencyElapsed = false;
-
-        // have the instruction scheduled for specifed latency later
-        scheduleInstructionLatency(instruction->id,
-                                   instructionLatency(*instruction));
-
         const amx::ResourceState &state = resourceTracker.state(*resource);
         DPRINTF(AMX,
                 "Issued instruction %llu on %s at cycle %llu; next issue "
@@ -199,6 +194,12 @@ AmxAccl::executeInstruction(AmxInst *instruction)
                 static_cast<unsigned long long>(now),
                 static_cast<unsigned long long>(state.nextIssueCycle),
                 state.inFlight);
+    }
+
+    if (instruction->opcode != AmxOpcode::DumpState) {
+        instruction->latencyElapsed = false;
+        scheduleInstructionLatency(instruction->id,
+                                   instructionLatency(*instruction));
     }
 
     switch (instruction->opcode) {

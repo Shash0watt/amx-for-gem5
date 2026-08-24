@@ -54,8 +54,7 @@ AmxAccl::finishMemoryDispatch(AmxInst *instruction)
 
     // Mark that no more 'work' will be created
     instruction->translationDispatchComplete = true;
-    // memory loads could be complete right away
-    completeMemoryStageIfReady(instruction_id);
+    completeInstructionIfReady(instruction_id);
 }
 
 // this is the actual memory request
@@ -251,13 +250,13 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
         }
         // this could be our last translation, so we should try and see if we
         // can complete
-        completeMemoryStageIfReady(instruction_id);
+        completeInstructionIfReady(instruction_id);
         return;
     }
 
     // A recorded failure is reported after the remaining memory work drains.
     if (instruction->failure != AmxInst::Failure::None) {
-        completeMemoryStageIfReady(instruction_id);
+        completeInstructionIfReady(instruction_id);
         return;
     }
 
@@ -303,7 +302,7 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
             memory_chunk.access == MemoryAccess::Read ? "read" : "write",
             static_cast<unsigned long long>(instruction_id),
             request->getVaddr(), request->getPaddr());
-    completeMemoryStageIfReady(instruction_id);
+    completeInstructionIfReady(instruction_id);
 }
 
 // -------------------------------------------------------------------------
@@ -379,76 +378,7 @@ AmxAccl::handleMemoryResponse(PacketPtr packet)
 
     // possible that we have a finished instruction at the end of handling the
     // memory response
-    completeMemoryStageIfReady(instruction_id);
-}
-
-// -------------------------------------------------------------------------
-// Memory-instruction completion
-// -------------------------------------------------------------------------
-
-void
-AmxAccl::completeMemoryStageIfReady(uint64_t instruction_id)
-{
-    // Advance only after dispatch, translations, and cache requests are done.
-    AmxInst *instruction = findInstruction(instruction_id);
-    panic_if(!instruction, "AMX completion check for unknown instruction %llu",
-             static_cast<unsigned long long>(instruction_id));
-
-    // All three conditions are required:
-    //   - dispatchComplete: the execution loop will create no more accesses;
-    //   - no translations: every MMU callback has returned;
-    //   - no requests: every packet sent to memory has received a response.
-    if (!instruction->translationDispatchComplete ||
-        instruction->outstandingTranslations != 0 ||
-        instruction->outstandingRequests != 0) {
-        return;
-    }
-
-    // Memory and the fixed execution latency overlap. Completion occurs only
-    // after both have elapsed.
-    switch (instruction->opcode) {
-        case AmxOpcode::Load:
-            instruction->memoryComplete = true;
-            completeLoadIfReady(instruction_id);
-            return;
-        case AmxOpcode::Store:
-            instruction->memoryComplete = true;
-            completeStoreIfReady(instruction_id);
-            return;
-        case AmxOpcode::Config:
-            break;
-        case AmxOpcode::DotProduct:
-        case AmxOpcode::Zero:
-        case AmxOpcode::DumpState:
-            panic("AMX non-memory instruction reached memory completion");
-    }
-
-    // A failed config has nothing valid to commit and should be reported
-    // immediately rather than waiting for the normal configuration latency.
-    if (instruction->failure != AmxInst::Failure::None) {
-        finishConfigInstruction(instruction_id);
-        return;
-    }
-    if (instruction->completionScheduled) {
-        // Several callbacks can converge here at the same simulated tick;
-        // only the first fully-drained check may schedule completion.
-        return;
-    }
-
-    panic_if(configCompletionEvent.scheduled(),
-             "AMX scheduled two configuration completions");
-    instruction->completionScheduled = true;
-    pendingConfigInstructionId = instruction_id;
-
-    // gem5 models delayed actions by placing Events on its event queue. The
-    // config operation may finish no earlier than configLatency cycles after
-    // issue, (based on what it says in the optimisation guide) but time spent
-    // waiting for translation/memory overlaps that latency.  If memory took
-    // longer, clockEdge() allows completion on the current AMX clock boundary;
-    // otherwise `earliest` enforces the minimum.
-    const Tick earliest =
-        instruction->issueTick + cyclesToTicks(configLatency);
-    schedule(configCompletionEvent, std::max(clockEdge(), earliest));
+    completeInstructionIfReady(instruction_id);
 }
 
 } // namespace gem5

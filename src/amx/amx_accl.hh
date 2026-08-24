@@ -148,7 +148,7 @@ class AmxAccl : public ClockedObject
     void eraseInstruction(uint64_t instruction_id);
 
     // ---------------------------------------------------------------------
-    // Instruction execution
+    // Instruction execution and completion
     // ---------------------------------------------------------------------
     void executeInstruction(AmxInst *instruction);
     void executeLoadInstruction(AmxInst *instruction);
@@ -159,14 +159,10 @@ class AmxAccl : public ClockedObject
     void executeDumpStateInstruction(AmxInst *instruction);
     void writeStateDump(std::ostream &stream,
                         const std::string &dump_name) const;
-    void completeLoadIfReady(uint64_t instruction_id);
-    void completeLoadInstruction(AmxInst *instruction);
-    void completeStoreIfReady(uint64_t instruction_id);
-    void completeStoreInstruction(AmxInst *instruction);
-    void finishDotProductInstruction(uint64_t instruction_id);
-    void finishZeroInstruction(uint64_t instruction_id);
-    void finishConfigInstruction(uint64_t instruction_id);
-    void processConfigCompletionEvent();
+    void completeInstructionIfReady(uint64_t instruction_id);
+    void finalizeInstruction(AmxInst *instruction);
+    void reportInstructionFailure(const AmxInst &instruction,
+                                  const char *op_name) const;
     void commitTileConfig(const amx::TileConfig &config);
 
     // ---------------------------------------------------------------------
@@ -193,7 +189,6 @@ class AmxAccl : public ClockedObject
                            const MemoryChunk &memory_chunk,
                            const Fault &fault, const RequestPtr &request);
     void handleMemoryResponse(PacketPtr packet);
-    void completeMemoryStageIfReady(uint64_t instruction_id);
 
     // ---------------------------------------------------------------------
     // SimObject connections and architectural state
@@ -213,8 +208,6 @@ class AmxAccl : public ClockedObject
     const Cycles storeLatency;
     amx::ResourceTracker resourceTracker;
 
-    EventFunctionWrapper configCompletionEvent;
-    uint64_t pendingConfigInstructionId;
     EventFunctionWrapper issueRetryEvent;
     std::optional<Cycles> nextIssueRetryCycle;
     EventFunctionWrapper latencyEvent;

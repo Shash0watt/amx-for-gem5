@@ -104,6 +104,7 @@ AmxAccl::instructionLatency(const AmxInst &instruction) const
         case AmxOpcode::Store:
             return storeLatency;
         case AmxOpcode::Config:
+            return configLatency;
         case AmxOpcode::DumpState:
             break;
     }
