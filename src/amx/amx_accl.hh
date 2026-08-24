@@ -90,12 +90,6 @@ class AmxAccl : public ClockedObject
         SnoopRespPacketQueue snoopResponseQueue;
     };
 
-    enum class MemoryTarget
-    {
-        TileRow,
-        TileConfig
-    };
-
     enum class MemoryAccess
     {
         Read,
@@ -105,11 +99,8 @@ class AmxAccl : public ClockedObject
     struct MemoryChunk
     {
         MemoryAccess access;
-        MemoryTarget target;
-        uint8_t tile;
-        uint8_t row;
+        uint8_t *hostBuf;
         size_t packetOffset;
-        size_t bufferOffset;
         size_t bytes;
     };
 
@@ -157,7 +148,7 @@ class AmxAccl : public ClockedObject
     void eraseInstruction(uint64_t instruction_id);
 
     // ---------------------------------------------------------------------
-    // Instruction execution
+    // Instruction execution and completion
     // ---------------------------------------------------------------------
     void executeInstruction(AmxInst *instruction);
     void executeLoadInstruction(AmxInst *instruction);
@@ -168,14 +159,10 @@ class AmxAccl : public ClockedObject
     void executeDumpStateInstruction(AmxInst *instruction);
     void writeStateDump(std::ostream &stream,
                         const std::string &dump_name) const;
-    void completeLoadIfReady(uint64_t instruction_id);
-    void completeLoadInstruction(AmxInst *instruction);
-    void completeStoreIfReady(uint64_t instruction_id);
-    void completeStoreInstruction(AmxInst *instruction);
-    void finishDotProductInstruction(uint64_t instruction_id);
-    void finishZeroInstruction(uint64_t instruction_id);
-    void finishConfigInstruction(uint64_t instruction_id);
-    void processConfigCompletionEvent();
+    void completeInstructionIfReady(uint64_t instruction_id);
+    void finalizeInstruction(AmxInst *instruction);
+    void reportInstructionFailure(const AmxInst &instruction,
+                                  const char *op_name) const;
     void commitTileConfig(const amx::TileConfig &config);
 
     // ---------------------------------------------------------------------
@@ -192,10 +179,9 @@ class AmxAccl : public ClockedObject
     void beginMemoryInstruction(AmxInst *instruction);
     void finishMemoryDispatch(AmxInst *instruction);
     void dispatchMemoryRead(AmxInst *instruction, uint64_t virtual_address,
-                            size_t bytes, MemoryTarget target,
-                            uint8_t tile = 0, uint8_t row = 0);
+                            size_t bytes, uint8_t *host_dest);
     void dispatchMemoryWrite(AmxInst *instruction, uint64_t virtual_address,
-                             size_t bytes, uint8_t tile, uint8_t row);
+                             size_t bytes, const uint8_t *host_src);
     void dispatchMemoryChunk(AmxInst *instruction, uint64_t virtual_address,
                              size_t request_size,
                              const MemoryChunk &memory_chunk);
@@ -203,13 +189,6 @@ class AmxAccl : public ClockedObject
                            const MemoryChunk &memory_chunk,
                            const Fault &fault, const RequestPtr &request);
     void handleMemoryResponse(PacketPtr packet);
-    void validateMemoryOwner(const AmxInst &instruction,
-                             const MemoryChunk &memory_chunk) const;
-    void *memoryDestination(AmxInst &instruction,
-                            const MemoryChunk &memory_chunk);
-    const void *memorySource(const AmxInst &instruction,
-                             const MemoryChunk &memory_chunk) const;
-    void completeMemoryStageIfReady(uint64_t instruction_id);
 
     // ---------------------------------------------------------------------
     // SimObject connections and architectural state
@@ -229,8 +208,6 @@ class AmxAccl : public ClockedObject
     const Cycles storeLatency;
     amx::ResourceTracker resourceTracker;
 
-    EventFunctionWrapper configCompletionEvent;
-    uint64_t pendingConfigInstructionId;
     EventFunctionWrapper issueRetryEvent;
     std::optional<Cycles> nextIssueRetryCycle;
     EventFunctionWrapper latencyEvent;
