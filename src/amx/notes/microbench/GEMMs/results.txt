@@ -1,4 +1,4 @@
-basic gemm 16x32 * 32x16 cycle: 213.71
+basic gemm 16x32 * 32x16 cycle: 243.71
 
 32x32
 bf16_gemm_none average cycles: 550.96
@@ -24,3 +24,9 @@ bf16_gemm_med average cycles: 132929.26
 bf16_gemm_none average cycles: 25408200.02
 bf16_gemm_low average cycles: 13512805.28
 bf16_gemm_med average cycles: 13897795.86
+
+
+oneDNN_matmul_gmacs/128        4451 ns         4440 ns       157394 GMAC/s=472.364/s
+oneDNN_matmul_gmacs/256       20639 ns        20585 ns        34054 GMAC/s=815.034/s
+oneDNN_matmul_gmacs/512      173388 ns       172862 ns         4048 GMAC/s=776.446/s
+oneDNN_matmul_gmacs/1024    1537996 ns      1532119 ns          466 GMAC/s=700.821/s

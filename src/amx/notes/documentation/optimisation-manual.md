@@ -51,7 +51,7 @@ Querying Leaf 0x1D at runtime isn't really necessary. Current Intel AMX implemen
 ### Actually Using Intel AMX (Linux Syscalls)
 
 Even on hardware and kernels that support AMX, executing an AMX instruction will immediately trigger an Invalid Opcode fault (#UD / SIGILL) unless the application requests permission from the Linux kernel for the calling thread:
-
+ 
 ```c
 #include <stdbool.h>
 #include <sys/syscall.h>

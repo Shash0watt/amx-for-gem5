@@ -50,16 +50,11 @@ pseudo-instruction
                    remove it from the queue, and issue again
 ```
 
-The memory and latency branches overlap. Tile loads and stores start both
-branches when they issue and join them in their `complete*IfReady()` paths.
-Finishing only one branch is not enough to complete either operation. Dot
-product uses only the fixed-latency branch because it does not access memory.
-
-Configuration is the exception to this generic path: it is not assigned an
-issue resource or a generic latency deadline. After its memory read drains, a
-separate configuration event enforces `config_latency` measured from its issue
-time 
-TODO: make configuration follow the same pathway
+The memory and latency branches overlap. Tile loads, stores, and configuration
+reads start both branches when they issue and join them in the unified
+`completeInstructionIfReady()` path. Finishing only one branch is not enough
+to complete an operation. Dot product and zero use only the fixed-latency
+branch because they do not access memory.
 
 ## File Naming
 `instruction_amx.*` defines what an instruction contains and how dependencies
@@ -124,14 +119,13 @@ Three kinds of delayed activity wake the model later:
 | Activity | Why it is scheduled | What happens when it runs |
 | --- | --- | --- |
 | `issueRetryEvent` | An otherwise-ready instruction is waiting for its pipeline's next issue cycle. | Calls `tryIssue()` to scan the queue again. |
-| `latencyEvent` | An issued load, dot product, zero, or store has not reached its minimum execution latency. | Marks every instruction due at that tick as having finished its latency wait. |
+| `latencyEvent` | An issued load, dot product, zero, store, or configuration has not reached its minimum execution latency. | Marks every instruction due at that tick as having finished its latency wait. |
 | Memory callbacks | A translation or cache request is still outstanding. Gem5's MMU and memory system control this timing. | Drain memory counters and check whether the memory stage is complete. |
 
 The retry event controls when work may **start**. The latency event and memory
-callbacks control when issued work may **finish**. A tile load requires both
-its latency and memory paths to finish; whichever path finishes last completes
-the instruction. Configuration uses its own completion event after its memory
-read drains.
+callbacks control when issued work may **finish**. An operation with memory
+access requires both its latency and memory paths to finish; whichever path
+finishes last completes the instruction.
 
 ## Instruction lifecycles
 
@@ -146,7 +140,7 @@ read drains.
    chunk is translated and sent through the timing memory port.
 5. Responses are copied into the correct tile row. The load finishes only when
    both memory and its configured minimum latency have completed.
-6. `completeLoadInstruction()` releases the scoreboard and load-pipeline state,
+6. `finalizeInstruction()` releases the scoreboard and load-pipeline state,
    removes the instruction, and runs the issue loop again.
 
 ### Tile configuration
@@ -157,7 +151,7 @@ read drains.
    cannot pass it.
 3. The 64-byte configuration is read through the same translation and timing
    memory path as a tile load.
-4. `finishConfigInstruction()` decodes and validates the bytes after memory and
+4. `finalizeInstruction()` decodes and validates the bytes after memory and
    minimum configuration latency have completed.
 5. `commitTileConfig()` installs the new layout and clears all tile data.
 
@@ -222,7 +216,7 @@ gem5 latencyEvent
 instructionLatencyElapsed()
         |
         v
-finishDotProductInstruction()
+finalizeInstruction()
         |
         +--> doDotProductBF16()
         +--> update the destination tile
