@@ -35,7 +35,7 @@ make
 ### 2. Build gem5 & m5ops
 ```bash
 # Build gem5 (Replace {cpus} with your cpu core count)
-scons build/X86/gem5.opt -j {cpus}
+scons build/X86/gem5.opt -j{cpus}
 
 # Build m5ops utility
 cd util/m5 && scons build/x86/out/m5
