@@ -48,8 +48,6 @@ AmxAccl::findReadyInstruction()
 
         // Also preserve dependencies on older work that has not issued yet.
         if (hasOlderTileHazard(instruction)) {
-            // TODO: Consider renaming after connecting to the O3 CPU, if the
-            // TODO: modeled Sapphire Rapids behavior supports it.
             continue;
         }
 

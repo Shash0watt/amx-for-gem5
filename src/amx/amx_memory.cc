@@ -211,6 +211,7 @@ AmxAccl::AmxTranslation::markDelayed()
 void
 AmxAccl::AmxTranslation::finish(const Fault &fault, const RequestPtr &request,
                                 ThreadContext *, BaseMMU::Mode mode)
+                                ThreadContext *, BaseMMU::Mode)
 {
     // This is out custom callback that we sent with the translation request
     const BaseMMU::Mode expected_mode =
