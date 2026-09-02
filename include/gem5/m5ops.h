@@ -75,6 +75,7 @@ void amx_tile_dpbf16ps (uint64_t dest_tile, uint64_t tile_a, uint64_t tile_b);
 void amx_tile_zero(uint64_t dest_tile);
 void amx_tile_stored(uint64_t src_tile, void *base, size_t stride);
 void amx_dump_state(const char *name);
+void amx_tile_release();
 
 /*
  * Send a very generic poke to the workload so it can do something. It's up to

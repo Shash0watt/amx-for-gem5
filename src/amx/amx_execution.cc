@@ -1,6 +1,5 @@
 #include <filesystem>
 #include <fstream>
-#include <limits>
 
 #include "amx/amx_accl.hh"
 #include "amx/dp_math_amx.hh"
@@ -14,21 +13,9 @@ namespace
 {
 
 uint64_t
-tileRowAddress(const amx::Instruction &instruction, uint8_t row,
-               uint16_t row_bytes)
+tileRowAddress(const amx::Instruction &instruction, uint8_t row)
 {
-    if (row != 0) {
-        panic_if(instruction.stride > (std::numeric_limits<uint64_t>::max() -
-                                       instruction.address) /
-                                          row,
-                 "AMX tile memory row address wraps around");
-    }
-
-    const uint64_t address = instruction.address + row * instruction.stride;
-    panic_if(row_bytes != 0 && address > std::numeric_limits<uint64_t>::max() -
-                                             (row_bytes - 1),
-             "AMX tile memory row crosses the address limit");
-    return address;
+    return instruction.address + row * instruction.stride;
 }
 
 } // anonymous namespace
@@ -45,22 +32,18 @@ AmxAccl::reportInstructionFailure(const AmxInst &instruction,
         case AmxInst::Failure::Translation:
             panic("AMX: %s %llu failed address translation: %s. "
                   "Asynchronous fault delivery is not implemented.",
-                  op_name,
-                  static_cast<unsigned long long>(instruction.id),
+                  op_name, static_cast<unsigned long long>(instruction.id),
                   instruction.fault->name());
         case AmxInst::Failure::MemoryError:
-            panic("AMX: %s %llu received an error response.",
-                  op_name,
+            panic("AMX: %s %llu received an error response.", op_name,
                   static_cast<unsigned long long>(instruction.id));
         case AmxInst::Failure::MissingData:
-            panic("AMX: %s %llu received a response without data.",
-                  op_name,
+            panic("AMX: %s %llu received a response without data.", op_name,
                   static_cast<unsigned long long>(instruction.id));
         case AmxInst::Failure::InvalidConfig:
             panic("AMX: %s %llu has an invalid configuration: %s. "
                   "Guest #GP delivery is not implemented.",
-                  op_name,
-                  static_cast<unsigned long long>(instruction.id),
+                  op_name, static_cast<unsigned long long>(instruction.id),
                   instruction.failureReason.c_str());
         case AmxInst::Failure::None:
             return;
@@ -78,34 +61,28 @@ AmxAccl::executeLoadInstruction(AmxInst *instruction)
 {
     panic_if(!tilesConfigured,
              "AMX tile load issued before tile configuration");
-    panic_if(instruction->destination < 0 ||
-                 instruction->destination >= NUM_TILES,
-             "AMX tile load has invalid tile %d", instruction->destination);
-    panic_if(!instruction->threadContext,
-             "AMX tile load has no thread context");
 
     const uint8_t tile = instruction->destination;
     const uint16_t rows = currentConfig.rows[tile];
     const uint16_t row_bytes = currentConfig.columnBytes[tile];
-    panic_if(rows > MAX_ROWS || row_bytes > MAX_COLS_BYTES,
-             "AMX tile %d has invalid configured dimensions", tile);
+    const uint8_t start_row = currentConfig.startRow;
 
     DPRINTF(AMX,
-            "Executing tile load %llu for TMM%u (%u rows, %u bytes/row)\n",
+            "Executing tile load %llu for TMM%u (%u rows, %u bytes/row, "
+            "start row %u)\n",
             static_cast<unsigned long long>(instruction->id), tile, rows,
-            row_bytes);
+            row_bytes, start_row);
 
     beginMemoryInstruction(instruction);
     tileScoreboard[tile].writeActive = true;
-    tiles[tile] = {};
+    instruction->loadData = {};
 
-    for (uint8_t row = 0;
+    for (uint8_t row = start_row;
          row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
         dispatchMemoryRead(
-            instruction,
-            tileRowAddress(*instruction, row, row_bytes),
+            instruction, tileRowAddress(*instruction, row),
             row_bytes,
-            reinterpret_cast<uint8_t *>(tiles[tile].data[row]));
+            reinterpret_cast<uint8_t *>(instruction->loadData.data[row]));
     }
 
     finishMemoryDispatch(instruction);
@@ -123,8 +100,6 @@ AmxAccl::executeConfigInstruction(AmxInst *instruction)
              "AMX tile configuration issued away from the queue front");
     panic_if(!allTilesIdle(),
              "AMX tile configuration issued while a tile is active");
-    panic_if(!instruction->threadContext,
-             "AMX tile configuration has no thread context");
 
     beginMemoryInstruction(instruction);
     instruction->configData.fill(0);
@@ -228,9 +203,8 @@ AmxAccl::executeDotProductInstruction(AmxInst *instruction)
     panic_if(!tilesConfigured,
              "AMX dot product issued before tile configuration");
 
-    amx::validateDotProductOp(
-        currentConfig, instruction->destination, instruction->source1,
-        instruction->source2);
+    amx::validateDotProductOp(currentConfig, instruction->destination,
+                              instruction->source1, instruction->source2);
 
     instruction->state = AmxInst::State::Executing;
 
@@ -247,8 +221,8 @@ AmxAccl::executeDotProductInstruction(AmxInst *instruction)
 
     DPRINTF(AMX, "Executing TDPBF16PS %llu; result is due at tick %llu\n",
             static_cast<unsigned long long>(instruction->id),
-            static_cast<unsigned long long>(
-                instruction->issueTick + cyclesToTicks(dotProductLatency)));
+            static_cast<unsigned long long>(instruction->issueTick +
+                                            cyclesToTicks(dotProductLatency)));
 }
 
 // -------------------------------------------------------------------------
@@ -260,20 +234,16 @@ AmxAccl::executeZeroInstruction(AmxInst *instruction)
 {
     panic_if(!instruction || instruction->opcode != AmxOpcode::Zero,
              "AMX TILEZERO execution received the wrong instruction");
-    panic_if(!tilesConfigured, "AMX TILEZERO issued before tile configuration");
-    panic_if(instruction->destination < 0 ||
-                 instruction->destination >= NUM_TILES,
-             "AMX TILEZERO has invalid destination tile %d",
-             instruction->destination);
+    panic_if(!tilesConfigured,
+             "AMX TILEZERO issued before tile configuration");
+    panic_if(currentConfig.startRow != 0,
+             "AMX: start_row must be 0 for arithmetic operations");
 
     const uint8_t tile = instruction->destination;
     const uint16_t rows = currentConfig.rows[tile];
     const uint16_t row_bytes = currentConfig.columnBytes[tile];
     panic_if(rows == 0 || row_bytes == 0,
              "AMX TILEZERO target tile %u is not configured", tile);
-    panic_if(rows > MAX_ROWS || row_bytes > MAX_COLS_BYTES,
-             "AMX TILEZERO target tile %u has invalid configured dimensions",
-             tile);
 
     instruction->state = AmxInst::State::Executing;
     panic_if(tileScoreboard[tile].writeActive,
@@ -283,8 +253,8 @@ AmxAccl::executeZeroInstruction(AmxInst *instruction)
     DPRINTF(AMX,
             "Executing TILEZERO %llu for TMM%u; result is due at tick %llu\n",
             static_cast<unsigned long long>(instruction->id), tile,
-            static_cast<unsigned long long>(
-                instruction->issueTick + cyclesToTicks(zeroLatency)));
+            static_cast<unsigned long long>(instruction->issueTick +
+                                            cyclesToTicks(zeroLatency)));
 }
 
 // -------------------------------------------------------------------------
@@ -297,19 +267,11 @@ AmxAccl::executeStoreInstruction(AmxInst *instruction)
     panic_if(!instruction || instruction->opcode != AmxOpcode::Store,
              "AMX tile store execution received the wrong instruction");
     panic_if(!tilesConfigured, "AMX store issued before tile configuration");
-    panic_if(instruction->source1 < 0 || instruction->source1 >= NUM_TILES,
-             "AMX store has an invalid tile operand %d",
-             instruction->source1);
-    panic_if(!instruction->threadContext,
-             "AMX tile store has no thread context");
 
     const uint8_t tile = instruction->source1;
     const uint16_t rows = currentConfig.rows[tile];
     const uint16_t row_bytes = currentConfig.columnBytes[tile];
     const uint8_t start_row = currentConfig.startRow;
-    panic_if(rows > MAX_ROWS || row_bytes > MAX_COLS_BYTES,
-             "AMX tile store source TMM%u has invalid configured dimensions",
-             tile);
 
     DPRINTF(AMX,
             "Executing tile store %llu from TMM%u (%u rows, %u bytes/row, "
@@ -325,8 +287,7 @@ AmxAccl::executeStoreInstruction(AmxInst *instruction)
     for (uint8_t row = start_row;
          row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
         dispatchMemoryWrite(
-            instruction,
-            tileRowAddress(*instruction, row, row_bytes),
+            instruction, tileRowAddress(*instruction, row),
             row_bytes,
             reinterpret_cast<const uint8_t *>(tiles[tile].data[row]));
     }
@@ -365,30 +326,32 @@ AmxAccl::completeInstructionIfReady(uint64_t instruction_id)
         return;
     }
 
-    finalizeInstruction(instruction);
+    finalizeInstruction(instruction); // finish all the bookeeping/commit stuff
+                                      // for the instruction
 }
 
 void
 AmxAccl::finalizeInstruction(AmxInst *instruction)
 {
-    panic_if(!instruction, "AMX finalizing null instruction");
-
     const uint64_t instruction_id = instruction->id;
 
     switch (instruction->opcode) {
         case AmxOpcode::Load: {
-            tileScoreboard[instruction->destination].writeActive = false;
+            const uint8_t tile = instruction->destination;
+            tileScoreboard[tile].writeActive = false;
             resourceTracker.complete(AmxResource::TileLoad);
+            if (instruction->failure == AmxInst::Failure::None) {
+                tiles[tile] = instruction->loadData;
+                currentConfig.startRow = 0;
+            }
             reportInstructionFailure(*instruction, "Tile load");
-            amx::traceBFloat16Tile(currentConfig, tiles,
-                                   instruction->destination);
+            amx::traceBFloat16Tile(currentConfig, tiles, tile);
+            DPRINTF(AMX, "Completed tile load %llu into TMM%u\n",
+                    static_cast<unsigned long long>(instruction_id), tile);
             break;
         }
         case AmxOpcode::Store: {
             const uint8_t tile = instruction->source1;
-            panic_if(tile >= NUM_TILES,
-                     "AMX tile store completion has invalid source tile %u",
-                     tile);
             panic_if(tileScoreboard[tile].readerCount <= 0,
                      "AMX tile store completed without an active reader");
             --tileScoreboard[tile].readerCount;
@@ -402,40 +365,42 @@ AmxAccl::finalizeInstruction(AmxInst *instruction)
             break;
         }
         case AmxOpcode::Config: {
-            panic_if(!allTilesIdle(),
-                     "AMX tile configuration completed while a tile is active");
+            panic_if(
+                !allTilesIdle(),
+                "AMX tile configuration completed while a tile is active");
             amx::TileConfig candidate = {};
             if (instruction->failure == AmxInst::Failure::None) {
                 candidate = amx::decodeTileConfig(instruction->configData);
                 if (!amx::validateTileConfig(candidate,
-                                            instruction->failureReason)) {
+                                             instruction->failureReason)) {
                     instruction->failure = AmxInst::Failure::InvalidConfig;
                 }
             }
             reportInstructionFailure(*instruction, "Tile configuration");
             commitTileConfig(candidate);
-            DPRINTF(AMX,
-                    "Committed tile configuration %llu with palette %u\n",
+            DPRINTF(AMX, "Committed tile configuration %llu with palette %u\n",
                     static_cast<unsigned long long>(instruction_id),
                     static_cast<unsigned>(candidate.paletteId));
             break;
         }
         case AmxOpcode::DotProduct: {
-            amx::doDotProductBF16(
-                currentConfig, tiles, instruction->destination,
-                instruction->source1, instruction->source2);
+            amx::doDotProductBF16(currentConfig, tiles,
+                                  instruction->destination,
+                                  instruction->source1, instruction->source2);
             amx::traceFloat32Tile(currentConfig, tiles,
                                   instruction->destination);
 
             for (int tile = 0; tile < NUM_TILES; ++tile) {
                 if (instruction->writesTile(tile)) {
-                    panic_if(!tileScoreboard[tile].writeActive,
-                             "AMX TDPBF16PS completed without an active writer");
+                    panic_if(
+                        !tileScoreboard[tile].writeActive,
+                        "AMX TDPBF16PS completed without an active writer");
                     tileScoreboard[tile].writeActive = false;
                 }
                 if (instruction->readsTile(tile)) {
-                    panic_if(tileScoreboard[tile].readerCount <= 0,
-                             "AMX TDPBF16PS completed without an active reader");
+                    panic_if(
+                        tileScoreboard[tile].readerCount <= 0,
+                        "AMX TDPBF16PS completed without an active reader");
                     --tileScoreboard[tile].readerCount;
                 }
             }
@@ -446,9 +411,6 @@ AmxAccl::finalizeInstruction(AmxInst *instruction)
         }
         case AmxOpcode::Zero: {
             const uint8_t tile = instruction->destination;
-            panic_if(tile >= NUM_TILES,
-                     "AMX TILEZERO completion has invalid destination tile %u",
-                     tile);
             panic_if(!tileScoreboard[tile].writeActive,
                      "AMX TILEZERO completed without an active tile writer");
             tiles[tile] = {};

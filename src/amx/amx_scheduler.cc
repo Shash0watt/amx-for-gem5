@@ -41,15 +41,13 @@ AmxAccl::findReadyInstruction()
             continue;
         }
 
-        // Do not conflict with tile reads or writes already in progress.
-        if (hasActiveTileHazard(instruction)) {
+        // Preserve tile dependencies on older unfinished work.
+        if (hasOlderTileHazard(instruction)) {
             continue;
         }
 
-        // Also preserve dependencies on older work that has not issued yet.
-        if (hasOlderTileHazard(instruction)) {
-            // TODO: Consider renaming after connecting to the O3 CPU, if the
-            // TODO: modeled Sapphire Rapids behavior supports it.
+        // Preserve memory dependencies on older unfinished work.
+        if (hasOlderMemoryHazard(instruction)) {
             continue;
         }
 
@@ -205,6 +203,70 @@ AmxAccl::hasOlderTileHazard(const AmxInst &instruction) const
         const bool waw = instruction.hasWAW(older);
 
         if (raw || war || waw) {
+            return true;
+        }
+    }
+
+    panic("AMX scheduler checked an instruction outside its queue");
+}
+
+size_t
+AmxAccl::instructionMemoryBytes(const AmxInst &instruction) const
+{
+    if (instruction.opcode != AmxOpcode::Load &&
+        instruction.opcode != AmxOpcode::Store) {
+        return 0;
+    }
+
+    const uint8_t tile = (instruction.opcode == AmxOpcode::Load) ?
+        instruction.destination : instruction.source1;
+    const uint16_t rows = currentConfig.rows[tile];
+    const uint16_t row_bytes = currentConfig.columnBytes[tile];
+    if (rows == 0 || row_bytes == 0) {
+        return 0;
+    }
+
+    return (rows - 1) * instruction.stride + row_bytes;
+}
+
+bool
+AmxAccl::hasOlderMemoryHazard(const AmxInst &instruction) const
+{
+    const bool younger_is_mem = (instruction.opcode == AmxOpcode::Load ||
+                                 instruction.opcode == AmxOpcode::Store);
+    if (!younger_is_mem) {
+        return false;
+    }
+
+    const size_t younger_bytes = instructionMemoryBytes(instruction);
+
+    for (const AmxInst &older : instructionQueue) {
+        if (&older == &instruction) {
+            return false;
+        }
+
+        if (older.state == AmxInst::State::Completed) {
+            continue;
+        }
+
+        const bool older_is_mem = (older.opcode == AmxOpcode::Load ||
+                                   older.opcode == AmxOpcode::Store);
+        if (!older_is_mem) {
+            continue;
+        }
+
+        // Only hazard if at least one is a store (RAW, WAR, WAW)
+        if (instruction.opcode != AmxOpcode::Store &&
+            older.opcode != AmxOpcode::Store) {
+            continue;
+        }
+
+        const size_t older_bytes = instructionMemoryBytes(older);
+        const bool memoryOverlap =
+            (instruction.address < older.address + older_bytes) &&
+            (older.address < instruction.address + younger_bytes);
+
+        if (memoryOverlap) {
             return true;
         }
     }
