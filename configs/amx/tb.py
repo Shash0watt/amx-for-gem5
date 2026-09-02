@@ -28,7 +28,7 @@ parser = argparse.ArgumentParser(description="Run one asynchronous AMX test")
 parser.add_argument(
     "--binary",
     type=Path,
-    default=Path("configs/amx/binaries/gem5_gemm"),
+    default=Path("configs/amx/binaries/simple_mm"),
     help="path to the AMX test binary",
 )
 parser.add_argument(
