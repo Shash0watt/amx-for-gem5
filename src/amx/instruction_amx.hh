@@ -93,6 +93,7 @@ struct Instruction
     bool memoryComplete = false;
 
     RawTileConfig configData = {};
+    TileRegister loadData = {};
     Tick issueTick = 0;
 
     Failure failure = Failure::None;

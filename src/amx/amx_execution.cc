@@ -65,21 +65,24 @@ AmxAccl::executeLoadInstruction(AmxInst *instruction)
     const uint8_t tile = instruction->destination;
     const uint16_t rows = currentConfig.rows[tile];
     const uint16_t row_bytes = currentConfig.columnBytes[tile];
+    const uint8_t start_row = currentConfig.startRow;
 
     DPRINTF(AMX,
-            "Executing tile load %llu for TMM%u (%u rows, %u bytes/row)\n",
+            "Executing tile load %llu for TMM%u (%u rows, %u bytes/row, "
+            "start row %u)\n",
             static_cast<unsigned long long>(instruction->id), tile, rows,
-            row_bytes);
+            row_bytes, start_row);
 
     beginMemoryInstruction(instruction);
     tileScoreboard[tile].writeActive = true;
-    tiles[tile] = {};
+    instruction->loadData = {};
 
-    for (uint8_t row = 0;
+    for (uint8_t row = start_row;
          row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
         dispatchMemoryRead(
             instruction, tileRowAddress(*instruction, row),
-            row_bytes, reinterpret_cast<uint8_t *>(tiles[tile].data[row]));
+            row_bytes,
+            reinterpret_cast<uint8_t *>(instruction->loadData.data[row]));
     }
 
     finishMemoryDispatch(instruction);
@@ -233,6 +236,8 @@ AmxAccl::executeZeroInstruction(AmxInst *instruction)
              "AMX TILEZERO execution received the wrong instruction");
     panic_if(!tilesConfigured,
              "AMX TILEZERO issued before tile configuration");
+    panic_if(currentConfig.startRow != 0,
+             "AMX: start_row must be 0 for arithmetic operations");
 
     const uint8_t tile = instruction->destination;
     const uint16_t rows = currentConfig.rows[tile];
@@ -332,11 +337,17 @@ AmxAccl::finalizeInstruction(AmxInst *instruction)
 
     switch (instruction->opcode) {
         case AmxOpcode::Load: {
-            tileScoreboard[instruction->destination].writeActive = false;
+            const uint8_t tile = instruction->destination;
+            tileScoreboard[tile].writeActive = false;
             resourceTracker.complete(AmxResource::TileLoad);
+            if (instruction->failure == AmxInst::Failure::None) {
+                tiles[tile] = instruction->loadData;
+                currentConfig.startRow = 0;
+            }
             reportInstructionFailure(*instruction, "Tile load");
-            amx::traceBFloat16Tile(currentConfig, tiles,
-                                   instruction->destination);
+            amx::traceBFloat16Tile(currentConfig, tiles, tile);
+            DPRINTF(AMX, "Completed tile load %llu into TMM%u\n",
+                    static_cast<unsigned long long>(instruction_id), tile);
             break;
         }
         case AmxOpcode::Store: {

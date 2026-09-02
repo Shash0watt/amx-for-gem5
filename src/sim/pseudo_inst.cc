@@ -717,6 +717,19 @@ amxDumpState(ThreadContext *tc, GuestAddr name_addr)
     }
 }
 
+void
+amxTileRelease(ThreadContext *tc)
+{
+    BaseCPU *cpu = tc->getCpuPtr();
+    AmxAccl *accl = cpu->getAmxAccl();
+
+    if (accl) {
+        accl->queueAmxRelease();
+    } else {
+        panic("amxTileRelease executed without an attached AMX accelerator");
+    }
+}
+
 // void
 // amxLoadd(ThreadContext *tc, uint64_t dest_tile, uint64_t src_mem, size_t
 // stride)

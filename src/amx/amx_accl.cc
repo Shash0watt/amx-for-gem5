@@ -135,6 +135,18 @@ AmxAccl::queueAmxDumpState(const std::string &dump_name)
     tryIssue();
 }
 
+void
+AmxAccl::queueAmxRelease()
+{
+    currentConfig = {};
+    tilesConfigured = false;
+    amx::clearTiles(tiles);
+    for (auto &entry : tileScoreboard) {
+        entry = {};
+    }
+    DPRINTF(AMX, "Executed AMX tile release (reset to Palette 0)\n");
+}
+
 // -------------------------------------------------------------------------
 // Issue and high-level execution flow
 // -------------------------------------------------------------------------

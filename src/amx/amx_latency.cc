@@ -87,10 +87,6 @@ AmxAccl::instructionLatencyElapsed(uint64_t instruction_id)
 {
     // Mark the wait as finished and continue the opcode's completion path.
     AmxInst *instruction = findInstruction(instruction_id);
-    panic_if(!instruction, "AMX latency elapsed for unknown instruction %llu",
-             static_cast<unsigned long long>(instruction_id));
-    panic_if(instruction->state != AmxInst::State::Executing,
-             "AMX latency elapsed for an inactive instruction");
     if (!instruction || instruction->state != AmxInst::State::Executing) {
         return;
     }

@@ -34,12 +34,13 @@ inline void
 validateDotProductOp(const TileConfig &config, int destination, int source1,
                      int source2)
 {
+    panic_if(config.startRow != 0,
+             "AMX: start_row must be 0 for arithmetic operations");
     panic_if(destination < 0 || destination >= NumTiles || source1 < 0 ||
                  source1 >= NumTiles || source2 < 0 || source2 >= NumTiles,
              "AMX dot product has an invalid tile operand");
-    panic_if(destination == source1 || destination == source2 ||
-                 source1 == source2,
-             "AMX TDPBF16PS requires three distinct tile registers");
+    panic_if(destination == source1 || destination == source2,
+             "AMX TDPBF16PS destination cannot match source operands");
 
     const uint16_t destination_rows = config.rows[destination];
     const uint16_t destination_colsb = config.columnBytes[destination];

@@ -66,6 +66,7 @@ class AmxAccl : public ClockedObject
                             uint64_t tile_b);
     void queueAmxZero(uint64_t destination);
     void queueAmxDumpState(const std::string &dump_name);
+    void queueAmxRelease();
     void tryIssue();
 
   private:
@@ -144,6 +145,8 @@ class AmxAccl : public ClockedObject
     void processIssueRetryEvent();
     bool hasActiveTileHazard(const AmxInst &instruction) const;
     bool hasOlderTileHazard(const AmxInst &instruction) const;
+    bool hasOlderMemoryHazard(const AmxInst &instruction) const;
+    size_t instructionMemoryBytes(const AmxInst &instruction) const;
     bool allTilesIdle() const;
     void eraseInstruction(uint64_t instruction_id);
 
