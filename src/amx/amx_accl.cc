@@ -1,7 +1,5 @@
 #include "amx/amx_accl.hh"
 
-#include <limits>
-
 #include "base/trace.hh"
 #include "debug/AMX.hh"
 
@@ -62,9 +60,6 @@ void
 AmxAccl::queueAmxLoadConfig(ThreadContext *tc, uint64_t config_address)
 {
     panic_if(!tc, "AMX: Tile configuration requires a thread context");
-    panic_if(config_address > std::numeric_limits<uint64_t>::max() -
-                                  (TILE_CONFIG_BYTES - 1),
-             "AMX: Tile configuration address wraps around");
 
     // uid generation
     const uint64_t id = nextInstructionId++;

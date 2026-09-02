@@ -91,6 +91,9 @@ AmxAccl::instructionLatencyElapsed(uint64_t instruction_id)
              static_cast<unsigned long long>(instruction_id));
     panic_if(instruction->state != AmxInst::State::Executing,
              "AMX latency elapsed for an inactive instruction");
+    if (!instruction || instruction->state != AmxInst::State::Executing) {
+        return;
+    }
 
     instruction->latencyElapsed = true;
     DPRINTF(AMX, "Instruction %llu reached its execution latency\n",

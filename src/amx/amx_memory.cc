@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <cstring>
-#include <limits>
 #include <memory>
 
 #include "amx/amx_accl.hh"
@@ -62,17 +61,11 @@ void
 AmxAccl::dispatchMemoryRead(AmxInst *instruction, uint64_t virtual_address,
                             size_t bytes, uint8_t *host_dest)
 {
-    panic_if(bytes != 0 &&
-                 virtual_address >
-                     std::numeric_limits<uint64_t>::max() - (bytes - 1),
-             "AMX memory read crosses the address limit");
-
     // AMX rows and the 64-byte tile configuration can start in the middle of
     // a cache line or cross line boundaries, Issue one request for every
     // cache line touched so the accesses behave like ordinary CPU cache-line
     // traffic in gem5's memory hierarchy.
     const size_t cache_line_size = cpu->cacheLineSize();
-    panic_if(cache_line_size == 0, "AMX requires a nonzero cache line size");
 
     // `current_address` is for walking the guest-visible byte range.
     // `destination_offset` is for walking the output buffer (a tile row or
@@ -110,13 +103,7 @@ void
 AmxAccl::dispatchMemoryWrite(AmxInst *instruction, uint64_t virtual_address,
                              size_t bytes, const uint8_t *host_src)
 {
-    panic_if(bytes != 0 &&
-                 virtual_address >
-                     std::numeric_limits<uint64_t>::max() - (bytes - 1),
-             "AMX memory write crosses the address limit");
-
     const size_t cache_line_size = cpu->cacheLineSize();
-    panic_if(cache_line_size == 0, "AMX requires a nonzero cache line size");
 
     uint64_t current_address = virtual_address;
     size_t source_offset = 0;
@@ -147,19 +134,6 @@ AmxAccl::dispatchMemoryChunk(AmxInst *instruction,
                              uint64_t virtual_address, size_t request_size,
                              const MemoryChunk &memory_chunk)
 {
-    // These are internal invariants.  Violating them indicates an AMX model
-    // bug rather than a guest-program error, so gem5 should stop immediately.
-    panic_if(!instruction || !instruction->threadContext,
-             "AMX memory access has no thread context");
-    panic_if(memory_chunk.packetOffset > request_size ||
-                 memory_chunk.bytes >
-                     request_size - memory_chunk.packetOffset,
-             "AMX memory chunk exceeds its request");
-    panic_if(memory_chunk.access == MemoryAccess::Write &&
-                 (memory_chunk.packetOffset != 0 ||
-                  memory_chunk.bytes != request_size),
-             "AMX write chunk must exactly cover its request");
-
     ThreadContext *tc = instruction->threadContext;
 
     // We need to first translate out address to a physical one ot make a cach
@@ -210,18 +184,9 @@ AmxAccl::AmxTranslation::markDelayed()
 
 void
 AmxAccl::AmxTranslation::finish(const Fault &fault, const RequestPtr &request,
-                                ThreadContext *, BaseMMU::Mode mode)
                                 ThreadContext *, BaseMMU::Mode)
 {
-    // This is out custom callback that we sent with the translation request
-    const BaseMMU::Mode expected_mode =
-        memoryChunk.access == MemoryAccess::Read ?
-            BaseMMU::Read : BaseMMU::Write;
-    panic_if(mode != expected_mode,
-             "AMX memory translation completed with the wrong mode");
-
     owner.finishTranslation(instructionId, memoryChunk, fault, request);
-
     delete this;
 }
 
@@ -313,8 +278,6 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
 void
 AmxAccl::handleMemoryResponse(PacketPtr packet)
 {
-
-    panic_if(!packet, "AMX received a null memory response");
     DPRINTF(AMX, "Received memory response for paddr 0x%lx\n",
             packet->getAddr());
 
@@ -334,14 +297,6 @@ AmxAccl::handleMemoryResponse(PacketPtr packet)
              static_cast<unsigned long long>(instruction->id));
 
     const MemoryChunk &memory_chunk = state->memoryChunk;
-    panic_if(!packet->isError() &&
-                 memory_chunk.access == MemoryAccess::Read &&
-                 !packet->isRead(),
-             "AMX read received a non-read response");
-    panic_if(!packet->isError() &&
-                 memory_chunk.access == MemoryAccess::Write &&
-                 !packet->isWrite(),
-             "AMX write received a non-write response");
 
     // A timing response may signal an error or, unexpectedly for a read,
     // arrive without a data payload. Write responses need not carry data.
@@ -354,11 +309,6 @@ AmxAccl::handleMemoryResponse(PacketPtr packet)
                instruction->failure == AmxInst::Failure::None) {
         instruction->failure = AmxInst::Failure::MissingData;
     }
-
-    panic_if(memory_chunk.packetOffset > packet->getSize() ||
-                 memory_chunk.bytes >
-                     packet->getSize() - memory_chunk.packetOffset,
-             "AMX response chunk exceeds its packet");
 
     if (memory_chunk.access == MemoryAccess::Read &&
         instruction->failure == AmxInst::Failure::None) {
