@@ -45,3 +45,6 @@ configs/amx/implementation_plan.md
 /amx_debug/actual/
 .agents/
 /AGENTS.md
+src/amx/notes/microbench/GEMMs/slurm.txt
+slurm-*.out
+slurm.txt

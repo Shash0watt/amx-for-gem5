@@ -19,8 +19,8 @@ enum
     M = 16,
     N = 16,
     K = 32,
-    WARMUP_ITERATIONS = 100,
-    MEASURED_ITERATIONS = 1000,
+    WARMUP_ITERATIONS = 10,
+    MEASURED_ITERATIONS = 100,
     A_ROW_BYTES = K * sizeof(uint16_t),
     PACKED_B_ROW_BYTES = N * 2 * sizeof(uint16_t),
     C_ROW_BYTES = N * sizeof(float)
@@ -69,6 +69,8 @@ main(void)
     alignas(64) uint16_t matrix_a[M][K];
     alignas(64) uint16_t matrix_b[K][N];
     alignas(64) uint16_t packed_b[K / 2][2 * N];
+    alignas(64) uint16_t dummy_mat[M][K];
+
     alignas(64) float matrix_c[M][N] = {0};
 
     for (int m = 0; m < M; ++m) {
@@ -91,6 +93,12 @@ main(void)
         }
     }
 
+    for (int m = 0; m < M; ++m) {
+        for (int k = 0; k < K; ++k) {
+            dummy_mat[m][k] = 0x4000;
+        }
+    }
+
     // 3. Tile configuration setup
     alignas(64) __tilecfg config = {0};
     config.palette_id = 1;
@@ -110,7 +118,7 @@ main(void)
 
     // 4. Warm up AMX and bring the data into cache.
     for (int i = 0; i < WARMUP_ITERATIONS; ++i) {
-        run_gemm(&config, &matrix_a[0][0], &packed_b[0][0],
+        run_gemm(&config, &dummy_mat[0][0], &dummy_mat[0][0],
                  &matrix_c[0][0]);
     }
 

@@ -1,18 +1,14 @@
-#include <algorithm>
-#include <cmath>
+#include <cstdio>
 #include <unordered_map>
 #include <vector>
 
-// Google Benchmark and oneDNN Headers
-#include <benchmark/benchmark.h>
 #include "oneapi/dnnl/dnnl.hpp"
 
 using namespace dnnl;
 
-static void
-oneDNN_matmul(benchmark::State &state)
+int
+main()
 {
-
     // -> You need a engine and a stream to use oneDNNL
 
     // Setup engine & stream
@@ -22,25 +18,19 @@ oneDNN_matmul(benchmark::State &state)
     // -> Then you can create the data that you are going to load into oneDNNL
 
     // first specify the dimensions for the 'tensor'
-    const memory::dim M = state.range(0);
-    const memory::dim K = state.range(0);
-    const memory::dim N = state.range(0);
+    const memory::dim M = 4;
+    const memory::dim K = 4;
+    const memory::dim N = 4;
 
     memory::dims src_dims = {M, K};
     memory::dims weights_dims = {K, N};
     memory::dims dst_dims = {M, N};
 
     // then create a buffer normally to hold our data
-    std::vector<float> src_data(M * K);
-    std::vector<float> weights_data(K * N);
-    std::vector<float> dst_data(M * N);
-
-    // we can fill the buffer with our data
-    std::generate(src_data.begin(), src_data.end(),
-                  [i = 0]() mutable { return std::cos(i++ / 10.f); });
-
-    std::generate(weights_data.begin(), weights_data.end(),
-                  [i = 0]() mutable { return std::sin(i++ * 2.f); });
+    // Fill src with 1s and weights with 1.5s
+    std::vector<float> src_data(M * K, 1.0f);
+    std::vector<float> weights_data(K * N, 1.5f);
+    std::vector<float> dst_data(M * N, 0.0f);
 
     // -> Now we need to create the descriptors for oneDNN and use them
 
@@ -74,20 +64,19 @@ oneDNN_matmul(benchmark::State &state)
     matmul_args.insert({DNNL_ARG_WEIGHTS, weights_mem});
     matmul_args.insert({DNNL_ARG_DST, dst_mem});
 
-    // benchmark loop
-    double flops_per_iteration = 2.0 * double(M) * double(K) * double(N);
-    for (auto _ : state) {
-        // execute the matmul
-        matmul_prim.execute(engine_stream, matmul_args);
-        engine_stream.wait();
+    // execute the matmul
+    matmul_prim.execute(engine_stream, matmul_args);
+    engine_stream.wait();
+
+    // print the results
+    std::printf("Result Matrix (4x4, expected %.1f per element):\n",
+                static_cast<float>(K * 1.0f * 1.5f));
+    for (int i = 0; i < M; ++i) {
+        for (int j = 0; j < N; ++j) {
+            std::printf("%6.2f ", dst_data[i * N + j]);
+        }
+        std::printf("\n");
     }
 
-    // Google benchmark feature to show the processing rate
-    state.counters["GFLOPS"] = benchmark::Counter(
-        flops_per_iteration / 1e9,
-        benchmark::Counter::kAvgThreads | benchmark::Counter::kIsRate);
+    return 0;
 }
-
-BENCHMARK(oneDNN_matmul)->RangeMultiplier(2)->Range(128, 1024);
-
-BENCHMARK_MAIN();

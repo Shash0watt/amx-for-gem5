@@ -1,32 +1,65 @@
-basic gemm 16x32 * 32x16 cycle: 243.71
 
-32x32
-bf16_gemm_none average cycles: 550.96
-bf16_gemm_low average cycles: 482.42
-bf16_gemm_med average cycles: 473.24
+=== Kernel: bf16_gemm_none ===
+    Size        Avg TSC Cycles       GFLOP/s
+  32^3                  629.12        218.02
+  64^3                 3570.84        308.15
+ 128^3                23564.68        373.70
+ 256^3               240902.50        292.50
+ 512^3              1884927.20        299.07
+1024^3             23794161.22        189.53
 
-64x64
-bf16_gemm_none average cycles: 3324.52
-bf16_gemm_low average cycles: 2691.36
-bf16_gemm_med average cycles: 2534.88
+=== Kernel: bf16_gemm_aligned ===
+    Size        Avg TSC Cycles       GFLOP/s
+  32^3                  338.82        404.77
+  64^3                 1715.16        640.92
+ 128^3                 6496.14       1355.44
+ 256^3                73863.26        953.92
+ 512^3               569606.06        989.65
+1024^3             12707933.84        354.88
 
-128x128
-bf16_gemm_none average cycles: 24068.76
-bf16_gemm_low average cycles: 18709.46
-bf16_gemm_med average cycles: 18333.14
+=== Kernel: intel_manual ===
+    Size        Avg TSC Cycles       GFLOP/s
+  32^3                  306.20        447.77
+  64^3                 1536.54        715.42
+ 128^3                 7354.00       1197.32
+ 256^3                48667.54       1447.72
+ 512^3               364812.70       1545.21
+1024^3              5965290.66        756.00
 
-256x256
-bf16_gemm_none average cycles: 229036.00
-bf16_gemm_low average cycles: 146845.60
-bf16_gemm_med average cycles: 132929.26
+=== Kernel: intel_manual_cont ===
+    Size        Avg TSC Cycles       GFLOP/s
+  32^3                  300.50        455.81
+  64^3                 1520.06        723.70
+ 128^3                 7057.72       1247.02
+ 256^3                42031.40       1676.30
+ 512^3               396214.16       1422.74
+1024^3              5161038.76        873.81
 
-1024x1024
-bf16_gemm_none average cycles: 25408200.02
-bf16_gemm_low average cycles: 13512805.28
-bf16_gemm_med average cycles: 13897795.86
+=== Kernel: bf16_gemm_6acc ===
+    Size        Avg TSC Cycles       GFLOP/s
+  32^3                  316.40        432.98
+  64^3                 1544.06        712.11
+ 128^3                 7195.60       1223.04
+ 256^3                46113.06       1527.98
+ 512^3               361494.78       1559.38
+1024^3              6310239.76        714.67
 
+=== Kernel: bf16_gemm_6acc_cont ===
+    Size        Avg TSC Cycles       GFLOP/s
+  32^3                  314.36        435.69
+  64^3                 1631.90        673.83
+ 128^3                 8003.44       1099.61
+ 256^3                42406.80       1661.46
+ 512^3               424534.38       1327.83
+1024^3              5124975.96        879.95
 
-oneDNN_matmul_gmacs/128        4451 ns         4440 ns       157394 GMAC/s=472.364/s
-oneDNN_matmul_gmacs/256       20639 ns        20585 ns        34054 GMAC/s=815.034/s
-oneDNN_matmul_gmacs/512      173388 ns       172862 ns         4048 GMAC/s=776.446/s
-oneDNN_matmul_gmacs/1024    1537996 ns      1532119 ns          466 GMAC/s=700.821/s
+=== oneDNN BF16 GEMM ===
+    Size        Avg TSC Cycles       GFLOP/s
+  16^3                 2796.26          6.15
+  32^3                 2722.60         50.51
+  64^3                 4818.26        228.42
+ 128^3                11271.36        781.33
+ 256^3                48942.54       1439.65
+ 512^3               992324.34        568.08
+1024^3              8412291.78        536.09
+
