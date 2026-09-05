@@ -64,6 +64,9 @@ for core in processor.cores:
     )
 
     # comment out if not out of order
+    ## TODO: Check these numbers with actaul documentation
+    ## TODO: Make sure that execution units, etc other CPU parameters are accurate to saphire rapids
+    
     core.core.decodeWidth = 6
     core.core.renameWidth = 8
     core.core.dispatchWidth = 8
@@ -102,18 +105,9 @@ board.set_se_binary_workload(
 start_tick = 0
 
 
-def get_clk_period_ticks():
-    try:
-        return board.clk_domain.clock[0].value
-    except Exception:
-        return 344.8275862  # Fallback for 2.9 GHz (10^12 ticks/sec / 2.9*10^9 Hz)
 
 
 def workbegin_handler():
-    global start_tick
-    start_tick = m5.curTick()
-    clk_period = get_clk_period_ticks()
-    start_cycle = int(start_tick / clk_period)
     print(f"\n--- Start of AMX ROI (Tick: {start_tick}, Cycle: {start_cycle}) ---\n")
 
     m5.debug.flags["AMX"].enable()
@@ -126,18 +120,10 @@ def workend_handler():
     clk_period = get_clk_period_ticks()
     start_cycle = int(start_tick / clk_period)
     end_cycle = int(end_tick / clk_period)
+    print(f"\n--- Start of AMX ROI (Tick: {start_tick}, Cycle: {start_cycle}) ---\n")
 
     elapsed_ticks = end_tick - start_tick
     elapsed_cycles = end_cycle - start_cycle
-
-    print("\n--- AMX Submissions Complete ---\n")
-    print(f"ROI Start Tick    : {start_tick}")
-    print(f"ROI End Tick      : {end_tick}")
-    print(f"ROI Elapsed Ticks : {elapsed_ticks}")
-    print(f"ROI Start Cycle   : {start_cycle}")
-    print(f"ROI End Cycle     : {end_cycle}")
-    print(f"ROI Total Cycles  : {elapsed_cycles}\n")
-
     yield False
 
 

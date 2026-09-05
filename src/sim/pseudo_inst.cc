@@ -628,6 +628,7 @@ m5Hypercall(ThreadContext *tc, uint64_t hypercall_id)
 }
 
 // this forwards a tile load to the attached amx unit.
+// _tile_loaddd()
 void
 amxLoadd(ThreadContext *tc, uint64_t dest_tile, GuestAddr src_mem,
          size_t stride)
@@ -643,12 +644,13 @@ amxLoadd(ThreadContext *tc, uint64_t dest_tile, GuestAddr src_mem,
 }
 
 // this pseudo-op sends a tile configuration request to the attached amx unit.
+// 
 void
 amxLoadConfig(ThreadContext *tc, GuestAddr config_addr)
 {
     BaseCPU *cpu = tc->getCpuPtr();
     AmxAccl *accl = cpu->getAmxAccl();
-
+    
     if (accl) {
         accl->queueAmxLoadConfig(tc, config_addr.addr);
     } else {
@@ -656,6 +658,7 @@ amxLoadConfig(ThreadContext *tc, GuestAddr config_addr)
     }
 }
 
+// _tile_dpbf16ps()
 void
 amxDotProduct(ThreadContext *tc, uint64_t dest_tile, uint64_t tile_a,
                uint64_t tile_b)

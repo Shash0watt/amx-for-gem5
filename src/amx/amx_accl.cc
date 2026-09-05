@@ -1,5 +1,6 @@
 #include "amx/amx_accl.hh"
 
+#include "base/logging.hh"
 #include "base/trace.hh"
 #include "debug/AMX.hh"
 
@@ -138,13 +139,13 @@ AmxAccl::queueAmxDumpState(const std::string &dump_name)
 void
 AmxAccl::queueAmxRelease()
 {
-    currentConfig = {};
-    tilesConfigured = false;
-    amx::clearTiles(tiles);
-    for (auto &entry : tileScoreboard) {
-        entry = {};
-    }
-    DPRINTF(AMX, "Executed AMX tile release (reset to Palette 0)\n");
+    // currentConfig = {};
+    // tilesConfigured = false;
+    // amx::clearTiles(tiles);
+    // for (auto &entry : tileScoreboard) {
+    //     entry = {};
+    // }
+    panic("Release not fully implemented");
 }
 
 // -------------------------------------------------------------------------

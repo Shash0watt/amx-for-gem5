@@ -51,7 +51,7 @@ AmxAccl::findReadyInstruction()
             continue;
         }
 
-        // A busy pipeline blocks only instructions that use that pipeline.
+        // A busy pipeline blocks only instructions that use that resource.
         const std::optional<AmxResource> resource = issueResource(instruction);
         if (resource && !resourceTracker.canIssue(*resource, curCycle())) {
             // Remember when to retry, then look for work on another pipeline.
@@ -229,38 +229,49 @@ AmxAccl::instructionMemoryBytes(const AmxInst &instruction) const
     return (rows - 1) * instruction.stride + row_bytes;
 }
 
+
 bool
 AmxAccl::hasOlderMemoryHazard(const AmxInst &instruction) const
 {
+    // Non-memory instructions (dot product, zero) never access system RAM,
+    // so they cannot have memory hazards.
     const bool younger_is_mem = (instruction.opcode == AmxOpcode::Load ||
                                  instruction.opcode == AmxOpcode::Store);
     if (!younger_is_mem) {
         return false;
     }
 
+    // Total byte footprint spanned by this younger instruction in memory.
     const size_t younger_bytes = instructionMemoryBytes(instruction);
 
+    // Scan all older instructions in program order up to this instruction.
     for (const AmxInst &older : instructionQueue) {
         if (&older == &instruction) {
-            return false;
+            return false; // Reached instruction itself; no older conflicts found.
         }
 
+        // If the older instruction has already completed its memory accesses,
+        // it can no longer cause a hazard
         if (older.state == AmxInst::State::Completed) {
             continue;
         }
 
+        // Skip non-memory older operations.
         const bool older_is_mem = (older.opcode == AmxOpcode::Load ||
                                    older.opcode == AmxOpcode::Store);
         if (!older_is_mem) {
             continue;
         }
 
-        // Only hazard if at least one is a store (RAW, WAR, WAW)
+        // Read-After-Read (RAR) is safe
         if (instruction.opcode != AmxOpcode::Store &&
             older.opcode != AmxOpcode::Store) {
             continue;
         }
 
+        // Check range overlap test between [younger.start, younger.end)
+        // and [older.start, older.end). If the ranges overlap, the younger
+        // instruction must stall until the older one finishes.
         const size_t older_bytes = instructionMemoryBytes(older);
         const bool memoryOverlap =
             (instruction.address < older.address + older_bytes) &&

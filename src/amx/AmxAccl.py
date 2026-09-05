@@ -27,6 +27,8 @@ class AmxAccl(ClockedObject):
 
     load_latency = Param.Cycles(
         45, "minimum issue-to-completion latency for tile load instructions"
+        # should I actually keep this or let this be 0..
+        # will memory ever be faster than 45 cycles
     )
 
     dp_issue_throughput = Param.Cycles(
