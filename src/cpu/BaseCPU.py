@@ -63,6 +63,8 @@ class BaseCPU(ClockedObject):
     cxx_class = "gem5::BaseCPU"
 
     # mbits addition for AMX support through the CPU
+    # every CPU simobject will now have a AMX base object attched to it which defaults to NULL
+    # when we build this scons will build a paramter that generates a C++ header file 
     amx_accl = Param.AmxAccl(NULL, "AMX Accelerator attached to this core")
 
     cxx_exports = [

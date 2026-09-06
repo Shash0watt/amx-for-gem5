@@ -61,8 +61,8 @@
 #include "debug/SyscallVerbose.hh"
 #include "debug/Thread.hh"
 #include "mem/page_table.hh"
-#include "params/BaseCPU.hh"
-#include "sim/clocked_object.hh"
+#include "params/BaseCPU.hh" // this is that auto generated python file
+#include "sim/clocked_object.hh" 
 #include "sim/full_system.hh"
 #include "sim/process.hh"
 #include "sim/root.hh"
@@ -130,7 +130,8 @@ CPUProgressEvent::description() const
 BaseCPU::BaseCPU(const Params &p, bool is_checker)
     : ClockedObject(p), 
       instCnt(0), 
-      amxAccl(p.amx_accl), // Initialize the pointer from Python
+      amxAccl(p.amx_accl), // this connects whatever object we put in python to the core
+      // in the python config file we passed the simObject.. this sets up the memeberr varaible to have the ptr to that core
       _cpuId(p.cpu_id), _socketId(p.socket_id),
       _instRequestorId(p.system->getRequestorId(this, "inst")),
       _dataRequestorId(p.system->getRequestorId(this, "data")),
@@ -148,6 +149,9 @@ BaseCPU::BaseCPU(const Params &p, bool is_checker)
       powerGatingOnIdle(p.power_gating_on_idle),
       enterPwrGatingEvent([this]{ enterPwrGating(); }, name())
 {
+    // then we basically connect this two ways
+    // in the heaeder we have the getAmxAccl function which lets the cpu know which amx accelerator is connected to it
+    // here we make sure that the amx accelertor knows which cpu it was connected to
     if (amxAccl) {
         amxAccl->setCPU(this);
     }
@@ -232,12 +236,6 @@ BaseCPU::BaseCPU(const Params &p, bool is_checker)
         commitStatptr->ratioUserOps = commitStatptr->numUserOps /
             commitStatptr->numOps;
         commitStats.emplace_back(commitStatptr);
-    }
-
-    // In internal core multiplexing, the AMX accelerator needs to know its parent
-    // CPU in order to directly access the CPU's memory ports.
-    if (amxAccl != nullptr) {
-        amxAccl->setCPU(this);
     }
 }
 

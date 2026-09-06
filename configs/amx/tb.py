@@ -1,3 +1,4 @@
+## --- Import things we need ---
 import argparse
 from pathlib import Path
 
@@ -24,6 +25,8 @@ from amx_private_l1_private_l2_cache_hierarchy import (
     AmxPrivateL1PrivateL2CacheHierarchy,
 )
 
+
+## --- Take in arguments for the config  (workload & amx state debug output) ---
 parser = argparse.ArgumentParser(description="Run one asynchronous AMX test")
 parser.add_argument(
     "--binary",
@@ -41,12 +44,11 @@ args = parser.parse_args()
 
 binary_path = args.binary
 
-
+## --- set up/connect things in the simualtion ---
 # Setup Cache and Memory
 memory = DIMM_DDR5_4400("1GiB")
 
 # Setup the processor
-# (CPUTypes.ATOMIC is faster for purely functional tests, but TIMING is better if you need cycle counts)
 processor = SimpleProcessor(
     # cpu_type=CPUTypes.TIMING,  # in order proc
     cpu_type=CPUTypes.O3,  # config for Out of Order
@@ -54,18 +56,18 @@ processor = SimpleProcessor(
     isa=ISA.X86,
 )
 
-# attach the AMX Accelerator to the CPU(s)
-# the SimpleProcessor wraps the actual CPU SimObjects.
-# we iterate through the cores and attach our accelerator
-# directly to the underlying BaseCPU (core.core).
+## the way the baseCPU class expects the simObjects to be attached is through passing it as a paramter
+## we iterate through each core attach the amx simObject
 for core in processor.cores:
     core.core.amx_accl = AmxAccl(
+        ## this where the debug output for the simulation will go
         dump_directory=args.dump_directory.as_posix()
     )
 
     # comment out if not out of order
     ## TODO: Check these numbers with actaul documentation
     ## TODO: Make sure that execution units, etc other CPU parameters are accurate to saphire rapids
+    ## TODO: the Cache hierachy also needs to match saphire rapids CPUs
     
     core.core.decodeWidth = 6
     core.core.renameWidth = 8
@@ -80,6 +82,10 @@ for core in processor.cores:
     core.core.numPhysIntRegs = 280
     core.core.numPhysFloatRegs = 332
 
+
+## to understand how the cache hierarchy is connected we can look at the python file for it 
+## basically the same as a normal private l1, l2 hierarchy but is has a crossbar which connects 
+# the amx simObject and the cpu simObject to the cache at the same points
 cache_hierarchy = AmxPrivateL1PrivateL2CacheHierarchy(
     l1d_size="48KiB",
     l1i_size="32KiB",
@@ -94,40 +100,27 @@ board = SimpleBoard(
     cache_hierarchy=cache_hierarchy,
 )
 
-# Setup Workload
+# --- Setup the Workload ---
 board.set_se_binary_workload(
     binary=BinaryResource(local_path=binary_path.as_posix())
 )
 
+
+# --- add some helpers to mark the simout ---
 # ./[path to gem5] --debug-help gives more flag that we can use
-
-
-start_tick = 0
-
-
-
-
 def workbegin_handler():
-    print(f"\n--- Start of AMX ROI (Tick: {start_tick}, Cycle: {start_cycle}) ---\n")
-
+    print(f"\n--- Start of AMX Region ---\n")
     m5.debug.flags["AMX"].enable()
-
-    yield False  # Yielding False tells the simulator to continue running
+    yield False  # Yielding true would end the simulaltion right away
 
 
 def workend_handler():
     end_tick = m5.curTick()
-    clk_period = get_clk_period_ticks()
-    start_cycle = int(start_tick / clk_period)
-    end_cycle = int(end_tick / clk_period)
-    print(f"\n--- Start of AMX ROI (Tick: {start_tick}, Cycle: {start_cycle}) ---\n")
-
-    elapsed_ticks = end_tick - start_tick
-    elapsed_cycles = end_cycle - start_cycle
-    yield False
+    print(f"\n--- END of AMX Region ---\n")
+    yield False 
 
 
-# Setup and Run Simulator
+# --- Setup and Run Simulator ---
 simulator = Simulator(
     board=board,
     on_exit_event={

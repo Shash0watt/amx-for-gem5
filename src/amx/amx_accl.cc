@@ -7,11 +7,12 @@
 namespace gem5
 {
 
-// -------------------------------------------------------------------------
-// Architectural instruction entry points
-// basically hooks that pseduo_inst.cc can call to let us know which
-// instruction we are running
-// -------------------------------------------------------------------------
+// Overview of how this simulator models intel AMX
+// A) pseduo inst queues the instruction to the accelerator
+// B) we issue instructions from the queue
+//      - first we do checks for dependencies (RAW, WAW, WAR or DP unit is busy)
+//      - based on these checkes we schedule the completion of an instruction
+//      - once the event to mark the finish of an instruction is called we can commit the result
 
 void
 AmxAccl::queueAmxLoad(ThreadContext *tc, uint64_t destination, uint64_t source,
@@ -136,17 +137,6 @@ AmxAccl::queueAmxDumpState(const std::string &dump_name)
     tryIssue();
 }
 
-void
-AmxAccl::queueAmxRelease()
-{
-    // currentConfig = {};
-    // tilesConfigured = false;
-    // amx::clearTiles(tiles);
-    // for (auto &entry : tileScoreboard) {
-    //     entry = {};
-    // }
-    panic("Release not fully implemented");
-}
 
 // -------------------------------------------------------------------------
 // Issue and high-level execution flow

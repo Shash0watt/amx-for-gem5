@@ -69,7 +69,7 @@ class CheckerCPU;
 class ThreadContext;
 class System;
 
-class AmxAccl; // mbits
+class AmxAccl;
 
 struct AddressMonitor
 {
