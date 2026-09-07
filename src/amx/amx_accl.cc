@@ -142,9 +142,16 @@ AmxAccl::queueAmxDumpState(const std::string &dump_name)
 // Issue and high-level execution flow
 // -------------------------------------------------------------------------
 
+// whenever this function is called it issues the first 'ready' instruction at the head of the queue
 void
 AmxAccl::tryIssue()
 {
+    // iterate through the instructions in the queue
+    // if an instruction is executing (then skip it)
+    // then if we have a barrier like loadConfig (no instruction past it is 'ready')
+    // then if the we have a hazard this instrutcion is not ready
+    // then if the dotProduct engine is busy then we cannot let this instruction pass
+    
     // An immediate translation callback can re-enter the issue path.
     if (issuingInstructions) {
         // this prevents recursive calling
