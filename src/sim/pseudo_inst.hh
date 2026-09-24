@@ -280,9 +280,9 @@ pseudoInstWork(ThreadContext *tc, uint8_t func, uint64_t &result)
             invokeSimcall<ABI>(tc, amxDumpState);
             return true;
 
-        case AMX_TILE_RELEASE:
-            invokeSimcall<ABI>(tc, amxTileRelease);
-            return true;
+        // case AMX_TILE_RELEASE:
+        //     invokeSimcall<ABI>(tc, amxTileRelease);
+        //     return true;
 
         case M5OP_HYPERCALL:
             invokeSimcall<ABI>(tc, m5Hypercall);

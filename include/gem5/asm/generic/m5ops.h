@@ -85,7 +85,7 @@
 #define AMX_TILE_ZERO 0x66
 #define AMX_TILE_STORED 0x67
 #define AMX_DUMP_STATE 0x68
-#define AMX_TILE_RELEASE 0x69
+// #define AMX_TILE_RELEASE 0x69
 
 #define M5OP_WORKLOAD 0x70
 
@@ -125,7 +125,7 @@
     M5OP(amx_tile_zero, AMX_TILE_ZERO)                                        \
     M5OP(amx_tile_stored, AMX_TILE_STORED)                                    \
     M5OP(amx_dump_state, AMX_DUMP_STATE)                                      \
-    M5OP(amx_tile_release, AMX_TILE_RELEASE)
+    // M5OP(amx_tile_release, AMX_TILE_RELEASE)
 
 #define M5OP_MERGE_TOKENS_I(a, b) a##b
 #define M5OP_MERGE_TOKENS(a, b) M5OP_MERGE_TOKENS_I(a, b)

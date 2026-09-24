@@ -1,8 +1,7 @@
 # AMX for gem5
 Research project implementing Intel AMX features into gem5 to profile matrix multiplication and LLM inference workloads.
 
-modeled as a simObject rather than the extension of a CPU core to make, port connections & debugging easier
-added 
+*As of **August 2026** the AMX Pesudo Instructions for tile config, load, store, zero & dot product (bf16) are supported --but not cycle accurate*
 
 ## Repository Structure
 
@@ -18,6 +17,8 @@ amx-for-gem5/
 |   |   ├── README.md           (gem5 implementation specifics)
 |   |   └── notes/              (Notes on Intel AMX and gem5)
 │   ├── cpu/    
+│   │   ├── o3/   
+│   │   │   └── lsq.cc          (Modified LSQ to intercept AMX packets)
 │   │   └── base.cc             (Modified to interface with the AMX accelerator)
 │   └── sim/    
 │       └── pseudo_inst.cc      (Custom m5ops for AMX intrinsics)
@@ -37,7 +38,7 @@ make
 scons build/X86/gem5.opt -j{cpus}
 
 # Build m5ops utility
-cd util/m5 && scons build/x86/out/m5
+cd util/m5 && scons build/x86/out/m5 && cd ../../
 ```
 
 ### 3. Run Simulation
