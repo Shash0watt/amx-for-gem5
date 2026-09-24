@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdalign.h>
@@ -7,6 +8,7 @@
 #include <x86intrin.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#include <linux/perf_event.h>
 
 #define ARCH_REQ_XCOMP_PERM 0x1023
 #define XFEATURE_XTILEDATA  18
@@ -55,6 +57,42 @@ run_gemm(const __tilecfg *config, const uint16_t *matrix_a,
     _tile_stored(0, matrix_c, C_ROW_BYTES);
 }
 
+int perf_fd = -1;
+
+void init_perf_counter()
+{
+    // --- set up the counter ---
+    struct perf_event_attr pe = {0};
+    pe.size = sizeof(struct perf_event_attr);
+    pe.disabled = 0; // enable perf_event
+
+    pe.type = PERF_TYPE_HARDWARE; 
+    pe.config = PERF_COUNT_HW_CPU_CYCLES; // count unhalted cpu cycles
+    pe.exclude_kernel = 1; // don't count OS cycles
+    pe.exclude_hv = 1;  // don't count VM cycles
+    // we also have exclude_user, exclude_kernel, exclue_idele
+
+    perf_fd = syscall(SYS_perf_event_open, &pe, 0, -1, -1, 0);
+    // [syscall, perf_event_attr, pid (0), CPU (-1 call on any cpu), group_fd (-1 this event is the leader?), any other flags ]
+
+    // --- enable/open the counter ---
+    if (perf_fd == -1) {
+        perror("perf_event_open failed");
+        exit(-1);
+    }
+}
+
+static inline uint64_t get_cycles()
+{
+    uint64_t count = 0;
+    _mm_lfence();
+    if (read(perf_fd, &count, sizeof(count)) != sizeof(count)) {
+        return 0;
+    }
+    _mm_lfence();
+    return count;
+}
+
 int
 main(void)
 {
@@ -63,6 +101,8 @@ main(void)
         fprintf(stderr, "Error: AMX tile permission (XFEATURE_XTILEDATA) failed.\n");
         return -1;
     }
+
+    init_perf_counter();
 
     // 2. Set up A[16][32] and B[32][16]. BF16 values are stored as raw bits:
     // 0x4000 is 2.0 and 0x4080 is 4.0.
@@ -122,30 +162,33 @@ main(void)
                  &matrix_c[0][0]);
     }
 
-    // 5. Measure 1000 GEMMs as one batch.
-    _mm_lfence();
-    uint64_t start_cycles = __rdtsc();
-    _mm_lfence();
+    // 5. Measure GEMMs as one batch.
+    uint64_t start, end, cycles, offset;
 
+    start = get_cycles();
+    end = get_cycles();
+    offset = end - start;
+
+    start = get_cycles();
     for (int i = 0; i < MEASURED_ITERATIONS; ++i) {
         run_gemm(&config, &matrix_a[0][0], &packed_b[0][0],
                  &matrix_c[0][0]);
     }
-
-    unsigned int tsc_aux;
-    uint64_t end_cycles = __rdtscp(&tsc_aux);
-    _mm_lfence();
-
-    double average_cycles =
-        (double)(end_cycles - start_cycles) / MEASURED_ITERATIONS;
+    end = get_cycles();
 
     // 6. Release the tile state and print the result.
     _tile_release();
 
+    cycles = end - start - offset;
+    double average_cycles =
+        (double)cycles / MEASURED_ITERATIONS;
+
     // Every output is the sum of 32 products: 32 * 2.0 * 4.0 = 256.0.
     printf("C[0][0]: %.1f (expected: 256.0)\n", matrix_c[0][0]);
-    printf("Average TSC cycles over %d iterations: %.2f\n",
+    printf("Total Cycles Taken: %lu \n", cycles);
+    printf("Average cycles over %d iterations: %.2f\n",
            MEASURED_ITERATIONS, average_cycles);
 
+    close(perf_fd);
     return 0;
 }

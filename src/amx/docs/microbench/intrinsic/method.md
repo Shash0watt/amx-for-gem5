@@ -23,3 +23,4 @@ to use it in C / C++:
 
 syscall details, hardware event attributes, and examples of perf_event_open uses: \
 https://man7.org/linux/man-pages/man2/perf_event_open.2.html
+

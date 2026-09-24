@@ -9,13 +9,15 @@
 #include <sys/syscall.h>
 #include <linux/perf_event.h>
 
+// Compile:
+// gcc -O3 -mamx-tile -mamx-bf16 dpbf16ps_trgh.c -o dpbf16ps_trgh
+
 #define ARCH_REQ_XCOMP_PERM 0x1023
 #define XFEATURE_XTILEDATA 18
 
-// intel amx setup 
-alignas(64) int8_t mat_A[16 * 64];
-// alignas(64) int8_t mat_B[16 * 64];
-// alignas(64) int8_t mat_dst[16 * 64];
+// 16 rows by 32 BF16 elements (64 bytes per row)
+alignas(64) uint16_t mat_A[16 * 32];
+alignas(64) uint16_t mat_B[16 * 32];
 
 typedef struct
 {
@@ -40,7 +42,6 @@ void init_amx()
     cfg.palette_id = 1;
     cfg.start_row = 0;
 
-    // Configure TMM0 - TMM7 to be 16 rows by 64 bytes (max size)
     for (int i = 0; i < 8; i++) {
         cfg.rows[i] = 16;
         cfg.colsb[i] = 64;
@@ -53,21 +54,17 @@ int perf_fd = -1;
 
 void init_perf_counter()
 {
-    // --- set up the counter ---
     struct perf_event_attr pe = {0};
     pe.size = sizeof(struct perf_event_attr);
-    pe.disabled = 0; // enable perf_event
+    pe.disabled = 0;
 
     pe.type = PERF_TYPE_HARDWARE; 
-    pe.config = PERF_COUNT_HW_CPU_CYCLES; // count unhalted cpu cycles
-    pe.exclude_kernel = 1; // don't count OS cycles
-    pe.exclude_hv = 1;  // don't count VM cycles
-    // we also have exclude_user, exclude_kernel, exclue_idele
+    pe.config = PERF_COUNT_HW_CPU_CYCLES;
+    pe.exclude_kernel = 1;
+    pe.exclude_hv = 1;
 
     perf_fd = syscall(SYS_perf_event_open, &pe, 0, -1, -1, 0);
-    // [syscall, perf_event_attr, pid (0), CPU (-1 call on any cpu), group_fd (-1 this event is the leader?), any other flags ]
 
-    // --- enable/open the counter ---
     if (perf_fd == -1) {
         perror("perf_event_open failed");
         exit(-1);
@@ -85,30 +82,25 @@ static inline uint64_t get_cycles()
     return count;
 }
 
-// 8 independent tile loads 
-#define LOAD_8 \
-    _tile_loadd(0, mat_A, 64); \
-    _tile_loadd(1, mat_A, 64); \
-    _tile_loadd(2, mat_A, 64); \
-    _tile_loadd(3, mat_A, 64); \
-    _tile_loadd(4, mat_A, 64); \
-    _tile_loadd(5, mat_A, 64); \
-    _tile_loadd(6, mat_A, 64); \
-    _tile_loadd(7, mat_A, 64);
+#define DP_6 \
+    _tile_dpbf16ps(0, 6, 7); \
+    _tile_dpbf16ps(1, 6, 7); \
+    _tile_dpbf16ps(2, 6, 7); \
+    _tile_dpbf16ps(3, 6, 7); \
+    _tile_dpbf16ps(4, 6, 7); \
+    _tile_dpbf16ps(5, 6, 7);
 
-// Unroll 1000 loads: 8 * 5 * 5 * 5 = 1000
-#define UNROLL_40_LOADS \
-    LOAD_8 LOAD_8 LOAD_8 LOAD_8 LOAD_8
+#define UNROLL_60_DPS \
+    DP_6 DP_6 DP_6 DP_6 DP_6 \
+    DP_6 DP_6 DP_6 DP_6 DP_6
 
-#define UNROLL_200_LOADS \
-    UNROLL_40_LOADS UNROLL_40_LOADS UNROLL_40_LOADS UNROLL_40_LOADS UNROLL_40_LOADS
+#define UNROLL_240_DPS \
+    UNROLL_60_DPS UNROLL_60_DPS UNROLL_60_DPS UNROLL_60_DPS
 
-#define UNROLL_1000_LOADS \
-    UNROLL_200_LOADS UNROLL_200_LOADS UNROLL_200_LOADS UNROLL_200_LOADS UNROLL_200_LOADS
-
+#define UNROLL_1200_DPS \
+    UNROLL_240_DPS UNROLL_240_DPS UNROLL_240_DPS UNROLL_240_DPS UNROLL_240_DPS
 
 int main() {
-
     if (!set_tiledata_use()) {
         fprintf(stderr, "Failed to enable AMX (XTILEDATA) state.\n");
         exit(-1);
@@ -117,27 +109,40 @@ int main() {
     init_amx();
     init_perf_counter();
 
-    for (int i = 0; i < 16 * 64; i++) {
-        mat_A[i] = (i % 127) + 1;
-        // mat_B[i] = (i % 127) + 1;
-        // mat_dst[i] = ((i + 13) % 127) + 1;
+    for (int i = 0; i < 16 * 32; i++) {
+        mat_A[i] = 0x4000;
+        mat_B[i] = 0x4080;
     }
+
+    _tile_loadd(6, mat_A, 64);
+    _tile_loadd(7, mat_B, 64);
+    
+    _tile_zero(0);
+    _tile_zero(1);
+    _tile_zero(2);
+    _tile_zero(3);
+    _tile_zero(4);
+    _tile_zero(5);
 
     // Warm-up
     for (int i = 0; i < 100; i++) {
-        LOAD_8
+        DP_6
     }
 
-    uint64_t start, end, cycles;
+    uint64_t start, end, cycles, offset;
 
     start = get_cycles();
-    UNROLL_1000_LOADS
+    end = get_cycles();
+    offset = end - start;
+
+    start = get_cycles();
+    UNROLL_1200_DPS
     end = get_cycles();
 
     _tile_release();
 
-    cycles = end - start;
-    double cycles_per_inst = (double)cycles / 1000.0;
+    cycles = end - start - offset;
+    double cycles_per_inst = (double)cycles / 1200.0;
 
     printf("Total Cycles Taken: %lu \n", cycles);
     printf("Throughput (Cycles Per Instruction): %.2f \n", cycles_per_inst);
@@ -145,4 +150,3 @@ int main() {
     close(perf_fd);
     return 0;
 }
-

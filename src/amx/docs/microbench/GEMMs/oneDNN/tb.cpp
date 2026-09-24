@@ -2,10 +2,14 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <stdfloat>
 #include <unordered_map>
 #include <vector>
 #include <immintrin.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <linux/perf_event.h>
 
 #include "oneapi/dnnl/dnnl.hpp"
 
@@ -89,6 +93,42 @@ verify_matmul(dnnl::engine &engine, dnnl::stream &engine_stream, int size = 64)
     return true;
 }
 
+int perf_fd = -1;
+
+void init_perf_counter()
+{
+    // --- set up the counter ---
+    struct perf_event_attr pe = {};
+    pe.size = sizeof(struct perf_event_attr);
+    pe.disabled = 0; // enable perf_event
+
+    pe.type = PERF_TYPE_HARDWARE; 
+    pe.config = PERF_COUNT_HW_CPU_CYCLES; // count unhalted cpu cycles
+    pe.exclude_kernel = 1; // don't count OS cycles
+    pe.exclude_hv = 1;  // don't count VM cycles
+    // we also have exclude_user, exclude_kernel, exclue_idele
+
+    perf_fd = syscall(SYS_perf_event_open, &pe, 0, -1, -1, 0);
+    // [syscall, perf_event_attr, pid (0), CPU (-1 call on any cpu), group_fd (-1 this event is the leader?), any other flags ]
+
+    // --- enable/open the counter ---
+    if (perf_fd == -1) {
+        perror("perf_event_open failed");
+        exit(-1);
+    }
+}
+
+static inline uint64_t get_cycles()
+{
+    uint64_t count = 0;
+    _mm_lfence();
+    if (read(perf_fd, &count, sizeof(count)) != sizeof(count)) {
+        return 0;
+    }
+    _mm_lfence();
+    return count;
+}
+
 void
 benchmark_oneDNN()
 {
@@ -102,7 +142,7 @@ benchmark_oneDNN()
     }
 
     std::printf("\n=== oneDNN BF16 GEMM ===\n");
-    std::printf("%8s  %20s  %12s\n", "Size", "Avg TSC Cycles", "GFLOP/s");
+    std::printf("%8s  %20s  %12s\n", "Size", "Avg Cycles", "GFLOP/s");
 
     for (int size : MATRIX_SIZES) {
         // 2. Define matrix dimensions (M x K * K x N = M x N)
@@ -163,23 +203,26 @@ benchmark_oneDNN()
         }
 
         // Benchmark
+        uint64_t start, end, cycles, offset;
+
+        start = get_cycles();
+        end = get_cycles();
+        offset = end - start;
+
         const auto start_time = std::chrono::steady_clock::now();
-        _mm_lfence();
-        const std::uint64_t start_cycles = __rdtsc();
-        _mm_lfence();
+        start = get_cycles();
 
         for (int i = 0; i < MEASURE_ITERS; ++i) {
             matmul_prim.execute(engine_stream, matmul_args);
             engine_stream.wait();
         }
 
-        unsigned int aux;
-        const std::uint64_t end_cycles = __rdtscp(&aux);
-        _mm_lfence();
+        end = get_cycles();
         const auto end_time = std::chrono::steady_clock::now();
 
+        cycles = end - start - offset;
         const double elapsed_sec = std::chrono::duration<double>(end_time - start_time).count();
-        const double avg_cycles = static_cast<double>(end_cycles - start_cycles) / MEASURE_ITERS;
+        const double avg_cycles = static_cast<double>(cycles) / MEASURE_ITERS;
         const double total_flops = 2.0 * size * size * size * MEASURE_ITERS;
         const double gflops = (total_flops / elapsed_sec) / 1e9;
 
@@ -191,6 +234,8 @@ benchmark_oneDNN()
 int
 main()
 {
+    init_perf_counter();
     benchmark_oneDNN();
+    close(perf_fd);
     return 0;
 }

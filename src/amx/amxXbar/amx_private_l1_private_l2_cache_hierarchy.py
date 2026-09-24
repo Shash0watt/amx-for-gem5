@@ -73,7 +73,7 @@ class AmxPrivateL1PrivateL2CacheHierarchy(
                 amx_l1d_xbar.cpu_side_ports
             )
 
-            # connect teh xbar to the l1 cache
+            # connect the xbar to the l1 cache
             amx_l1d_xbar.mem_side_ports = l1d_node.cache.cpu_side
 
             self._connect_table_walker(i, cpu)
