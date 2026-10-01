@@ -2,7 +2,6 @@
 Research project implementing Intel AMX features into gem5 to profile matrix multiplication and LLM inference workloads.
 
 modeled as a simObject rather than the extension of a CPU core to make, port connections & debugging easier
-added 
 
 ## Repository Structure
 
@@ -37,7 +36,7 @@ make
 scons build/X86/gem5.opt -j{cpus}
 
 # Build m5ops utility
-cd util/m5 && scons build/x86/out/m5
+cd util/m5 && scons build/x86/out/m5 && cd ../../
 ```
 
 ### 3. Run Simulation
