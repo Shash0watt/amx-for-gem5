@@ -148,7 +148,8 @@ bf16_gemm_aligned_cont_ab(const std::bfloat16_t *A, const std::bfloat16_t *B,
     _tile_release();
 }
 
-// 2x2 tile AMX GEMM with Continuous Tile Layout for both Matrix A and Matrix B
+// 2x2 tile AMX GEMM with Continuous Tile Layout for both Matrix A and Matrix B.
+// A final 16-row block uses only the top two accumulators (M must be a multiple of 16).
 inline void
 intel_manual(const std::bfloat16_t *A, const std::bfloat16_t *B,
              float *C, int M, int N, int K)
@@ -160,6 +161,7 @@ intel_manual(const std::bfloat16_t *A, const std::bfloat16_t *B,
     const int stride_c = N * sizeof(float);
 
     for (int m = 0; m < M; m += 2 * TM) {
+        const bool has_bottom = m + TM < M;
         for (int n = 0; n < N; n += 2 * TN) {
             _tile_zero(0);
             _tile_zero(1);
@@ -178,22 +180,30 @@ intel_manual(const std::bfloat16_t *A, const std::bfloat16_t *B,
                 _tile_loadd(6, b_left, stride_b);
                 _tile_dpbf16ps(0, 4, 6); // C00 += A_top * B_left
 
-                _tile_loadd(5, a_bot, stride_a);
-                _tile_dpbf16ps(2, 5, 6); // C10 += A_bot * B_left
+                if (has_bottom) {
+                    _tile_loadd(5, a_bot, stride_a);
+                    _tile_dpbf16ps(2, 5, 6); // C10 += A_bot * B_left
+                }
 
                 _tile_loadd(7, b_right, stride_b);
                 _tile_dpbf16ps(1, 4, 7); // C01 += A_top * B_right
-                _tile_dpbf16ps(3, 5, 7); // C11 += A_bot * B_right
+                if (has_bottom) {
+                    _tile_dpbf16ps(3, 5, 7); // C11 += A_bot * B_right
+                }
 
                 a_top += TM * TK; // 512 elements = 1024 bytes
-                a_bot += TM * TK; // 512 elements = 1024 bytes
+                if (has_bottom) {
+                    a_bot += TM * TK; // 512 elements = 1024 bytes
+                }
                 b_ptr += 1024;    // 1024 elements = 2048 bytes
             }
 
             _tile_stored(0, C + m * N + n, stride_c);
             _tile_stored(1, C + m * N + n + TN, stride_c);
-            _tile_stored(2, C + (m + TM) * N + n, stride_c);
-            _tile_stored(3, C + (m + TM) * N + n + TN, stride_c);
+            if (has_bottom) {
+                _tile_stored(2, C + (m + TM) * N + n, stride_c);
+                _tile_stored(3, C + (m + TM) * N + n + TN, stride_c);
+            }
         }
     }
 

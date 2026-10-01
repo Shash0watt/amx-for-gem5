@@ -723,5 +723,19 @@ amxDumpState(ThreadContext *tc, GuestAddr name_addr)
     }
 }
 
+// barrier: suspend this thread until every queued AMX instruction completes
+void
+amxWait(ThreadContext *tc)
+{
+    BaseCPU *cpu = tc->getCpuPtr();
+    AmxAccl *accl = cpu->getAmxAccl();
+
+    if (accl) {
+        accl->waitForDrain(tc);
+    } else {
+        panic("amxWait executed without an attached AMX accelerator");
+    }
+}
+
 } // namespace pseudo_inst
 } // namespace gem5

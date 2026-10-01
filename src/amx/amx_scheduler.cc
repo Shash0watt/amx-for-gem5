@@ -1,5 +1,6 @@
 #include "amx/amx_accl.hh"
 #include "base/trace.hh"
+#include "cpu/thread_context.hh"
 #include "debug/AMX.hh"
 
 namespace gem5
@@ -323,12 +324,38 @@ AmxAccl::eraseInstruction(uint64_t instruction_id)
          ++it) {
         if (it->id == instruction_id) {
             instructionQueue.erase(it);
+
+            // Wake the thread blocked in amx_wait once all work is done.
+            if (waitingThread && instructionQueue.empty()) {
+                DPRINTF(AMX, "AMX queue drained, resuming waiting thread\n");
+                waitingThread->activate();
+                waitingThread = nullptr;
+            }
             return;
         }
     }
 
     panic("AMX tried to erase unknown instruction %llu",
           static_cast<unsigned long long>(instruction_id));
+}
+
+// -------------------------------------------------------------------------
+// CPU synchronization (amx_wait)
+// -------------------------------------------------------------------------
+
+void
+AmxAccl::waitForDrain(ThreadContext *tc)
+{
+    // Nothing in flight: amx_wait is a does nothing
+    if (instructionQueue.empty())
+        return;
+
+    panic_if(waitingThread, "AMX supports only one thread in amx_wait");
+
+    DPRINTF(AMX, "amx_wait: suspending thread until %zu instructions drain\n",
+            instructionQueue.size());
+    waitingThread = tc;
+    tc->quiesce();
 }
 
 } // namespace gem5

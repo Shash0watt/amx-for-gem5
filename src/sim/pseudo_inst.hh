@@ -119,7 +119,7 @@ void amxTileZero(ThreadContext *tc, uint64_t dest_tile);
 void amxTileStore(ThreadContext *tc, uint64_t src_tile, GuestAddr base,
                   size_t stride);
 void amxDumpState(ThreadContext *tc, GuestAddr name_addr);
-void amxTileRelease(ThreadContext *tc);
+void amxWait(ThreadContext *tc);
 
 /**
  * Execute a decoded M5 pseudo instruction
@@ -280,8 +280,8 @@ pseudoInstWork(ThreadContext *tc, uint8_t func, uint64_t &result)
             invokeSimcall<ABI>(tc, amxDumpState);
             return true;
 
-        case AMX_TILE_RELEASE:
-            invokeSimcall<ABI>(tc, amxTileRelease);
+        case AMX_WAIT:
+            invokeSimcall<ABI>(tc, amxWait);
             return true;
 
         case M5OP_HYPERCALL:

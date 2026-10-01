@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -21,13 +22,28 @@
 
 constexpr int WARMUP_ITERS = 20;
 constexpr int MEASURE_ITERS = 100;
-constexpr int MATRIX_SIZES[] = {32, 64, 128, 256, 512, 1024};
-constexpr int MAX_SIZE = 1024;
+
+// A[M][K] * B[K][N] -> C[M][N].
+static const int GEMM_SIZES[][3] = { // M, K, N
+    {16, 512, 128000},
+    {16, 128000, 512},
+    {16, 512, 2048},
+    {16, 2048, 512},
+    {2048, 32, 2048},
+    {32, 7168, 2048},
+    {32, 2048, 7168},
+};
+
+// Largest buffer sizes across these shapes, also sufficient for the
+// small verification cases.
+constexpr int MAX_A_ELEMENTS = 16 * 128000;
+constexpr int MAX_B_ELEMENTS = 512 * 128000;
+constexpr int MAX_C_ELEMENTS = 2048 * 2048;
 
 // 64-byte aligned static memory buffers to prevent AMX cache line split stalls
-alignas(64) static std::bfloat16_t src_data[MAX_SIZE * MAX_SIZE];
-alignas(64) static std::bfloat16_t weights_data[MAX_SIZE * MAX_SIZE];
-alignas(64) static float dst_data[MAX_SIZE * MAX_SIZE];
+alignas(64) static std::bfloat16_t src_data[MAX_A_ELEMENTS];
+alignas(64) static std::bfloat16_t weights_data[MAX_B_ELEMENTS];
+alignas(64) static float dst_data[MAX_C_ELEMENTS];
 
 using namespace dnnl;
 
@@ -83,7 +99,7 @@ verify_matmul(dnnl::engine &engine, dnnl::stream &engine_stream, int size = 64)
 
     const float correct_value = static_cast<float>(size * 2.0f);
     for (int i = 0; i < size * size; ++i) {
-        if (std::abs(dst_data[i] - correct_value) > 1e-2f) {
+        if (!std::isfinite(dst_data[i]) || std::abs(dst_data[i] - correct_value) > 1e-2f) {
             std::fprintf(stderr, "Verification failed at index %d: expected %.2f, got %.2f\n",
                          i, correct_value, dst_data[i]);
             return false;
@@ -142,13 +158,13 @@ benchmark_oneDNN()
     }
 
     std::printf("\n=== oneDNN BF16 GEMM ===\n");
-    std::printf("%8s  %20s  %12s\n", "Size", "Avg Cycles", "GFLOP/s");
+    std::printf("%8s %8s %8s  %20s  %12s\n", "M", "K", "N", "Avg Cycles", "GFLOP/s");
 
-    for (int size : MATRIX_SIZES) {
+    for (unsigned test = 0; test < sizeof(GEMM_SIZES) / sizeof(GEMM_SIZES[0]); ++test) {
         // 2. Define matrix dimensions (M x K * K x N = M x N)
-        const memory::dim M = size;
-        const memory::dim K = size;
-        const memory::dim N = size;
+        const int M = GEMM_SIZES[test][0];
+        const int K = GEMM_SIZES[test][1];
+        const int N = GEMM_SIZES[test][2];
 
         memory::dims src_dims = {M, K};
         memory::dims weights_dims = {K, N};
@@ -223,11 +239,20 @@ benchmark_oneDNN()
         cycles = end - start - offset;
         const double elapsed_sec = std::chrono::duration<double>(end_time - start_time).count();
         const double avg_cycles = static_cast<double>(cycles) / MEASURE_ITERS;
-        const double total_flops = 2.0 * size * size * size * MEASURE_ITERS;
+        const double total_flops = 2.0 * M * K * N * MEASURE_ITERS;
         const double gflops = (total_flops / elapsed_sec) / 1e9;
 
-        std::printf("%4d^3    %20.2f  %12.2f\n",
-                    size, avg_cycles, gflops);
+        // Constant inputs give an inexpensive check of every requested shape.
+        const float expected = 1.5f * K;
+        for (int i = 0; i < M * N; ++i) {
+            if (!std::isfinite(dst_data[i]) || std::abs(dst_data[i] - expected) > 1e-2f) {
+                std::fprintf(stderr, "Verification failed (M=%d, K=%d, N=%d) at index %d\n",
+                             M, K, N, i);
+                return;
+            }
+        }
+        std::printf("%8d %8d %8d  %20.2f  %12.2f\n",
+                    M, K, N, avg_cycles, gflops);
     }
 }
 

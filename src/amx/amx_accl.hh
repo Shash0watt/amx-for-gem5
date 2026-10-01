@@ -66,8 +66,10 @@ class AmxAccl : public ClockedObject
                             uint64_t tile_b);
     void queueAmxZero(uint64_t destination);
     void queueAmxDumpState(const std::string &dump_name);
-    void queueAmxRelease();
     void tryIssue();
+
+    // Suspend tc until the instruction queue is empty (amx_wait).
+    void waitForDrain(ThreadContext *tc);
 
   private:
     using AmxInst = amx::Instruction;
@@ -226,6 +228,9 @@ class AmxAccl : public ClockedObject
     std::array<ScoreboardEntry, NUM_TILES> tileScoreboard;
     uint64_t nextInstructionId = 0;
     bool issuingInstructions = false;
+
+    // Thread suspended by amx_wait; activated once the queue drains.
+    ThreadContext *waitingThread = nullptr;
 };
 
 } // namespace gem5

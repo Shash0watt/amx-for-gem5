@@ -51,6 +51,9 @@ cd util/m5 && scons build/x86/out/m5
   # Test simulator implementation
   python3 configs/amx/tests/run_accuracy_tests.py
 
+  # fix linting when something exisits across python and c++
+  scons build/X86/compile_commands.json -j$(nproc)
+
   # CPU and memory usage summary per user
   ps aux | awk '{arr[$1]+=$3; arr2[$1]+=$4} END {for (i in arr) print i, "CPU%:", arr[i], "MEM%:", arr2[i]}' | sort -nk3
   ```
