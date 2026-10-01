@@ -22,9 +22,9 @@ main()
     amx_tile_loadd(0, source, sizeof(source[0]));
     amx_tile_zero(0);
     amx_dump_state("tilezero");
+    amx_wait();
     m5_work_end(0, 0);
 
-    m5_exit(1000);
-    m5_quiesce();
+   
     return 0;
 }

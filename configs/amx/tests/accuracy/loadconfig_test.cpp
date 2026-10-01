@@ -13,9 +13,9 @@ main()
     m5_work_begin(0, 0);
     amx_tile_loadconfig(&config);
     amx_dump_state("loadconfig");
+    amx_wait();
     m5_work_end(0, 0);
 
-    m5_exit(1000);
-    m5_quiesce();
+   
     return 0;
 }

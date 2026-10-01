@@ -352,7 +352,7 @@ AmxAccl::waitForDrain(ThreadContext *tc)
 
     panic_if(waitingThread, "AMX supports only one thread in amx_wait");
 
-    DPRINTF(AMX, "amx_wait: suspending thread until %zu instructions drain\n",
+    DPRINTF(AMX, "amx_wait: suspending thread until %d instructions drain\n",
             instructionQueue.size());
     waitingThread = tc;
     tc->quiesce();

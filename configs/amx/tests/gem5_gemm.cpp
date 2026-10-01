@@ -69,12 +69,12 @@ main()
             amx_tile_stored(0, ptr_c, stride_c);
         }
     }
+    amx_wait();
     m5_work_end(0, 0);
 
     amx_tile_loadconfig(&release);
     
-    m5_exit(750);
-    m5_quiesce();
+   
 
     return 0;
 }

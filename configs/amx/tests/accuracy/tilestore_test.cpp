@@ -39,9 +39,9 @@ main()
     amx_tile_loadconfig(&inspectConfig);
     amx_tile_loadd(1, destination, sizeof(destination[0]));
     amx_dump_state("tilestore");
+    amx_wait();
     m5_work_end(0, 0);
 
-    m5_exit(1000);
-    m5_quiesce();
+   
     return 0;
 }

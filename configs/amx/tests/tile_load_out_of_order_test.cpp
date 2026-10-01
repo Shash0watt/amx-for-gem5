@@ -58,9 +58,9 @@ main()
     alignas(64) TileConfig release = {};
     amx_tile_loadconfig(&release);
 
+    amx_wait();
     m5_work_end(0, 0);
-    m5_exit(750);
-    m5_quiesce();
+   
 
     std::cout << "out-of-order tile load test complete" << std::endl;
 

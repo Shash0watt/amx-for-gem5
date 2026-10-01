@@ -49,8 +49,8 @@ main()
     amx_tile_dpbf16ps(0, 1, 2);
 
     amx_tile_loadconfig(&release);
+    amx_wait();
     m5_work_end(0, 0);
-    m5_exit(750);
-    m5_quiesce();
+   
     return 0;
 }
