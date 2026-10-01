@@ -1,0 +1,167 @@
+// intel_manual 2x2-tile BF16 GEMM (gemms.hh) using real Intel AMX intrinsics.
+// Native counterpart of intel_manual_gem5_GEMM.cpp: same inputs, same instruction
+// sequence, same raw FP32 output, so the two outputs can be diffed bit-for-bit.
+//
+// Build & run (on a CPU with AMX, e.g. Sapphire Rapids):
+//   g++ -O2 -mamx-tile -mamx-bf16 intel_manual_amx_GEMM.cpp -o intel_manual_amx_GEMM
+//   ./intel_manual_amx_GEMM > amx_C.txt
+
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <immintrin.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+// The 64-byte memory layout consumed by LDTILECFG.
+struct TileConfig
+{
+    uint8_t paletteId;
+    uint8_t startRow;
+    uint8_t reserved0[14];
+    uint16_t columnBytes[8];
+    uint8_t reserved1[16];
+    uint8_t rows[8];
+    uint8_t reserved2[8];
+};
+
+constexpr int TM = 16;
+constexpr int TN = 16;
+constexpr int TK = 32;
+
+// M = 48 exercises both the 2x2 path and the final 16-row (has_bottom = false) path.
+constexpr int M = 48;
+constexpr int N = 64;
+constexpr int K = 64;
+
+int
+main()
+{
+    // Linux only lets a process use AMX tile data after asking for permission.
+    constexpr int ARCH_REQ_XCOMP_PERM = 0x1023;
+    constexpr int XFEATURE_XTILEDATA = 18;
+    if (syscall(SYS_arch_prctl, ARCH_REQ_XCOMP_PERM, XFEATURE_XTILEDATA) != 0) {
+        std::fprintf(stderr, "Failed to get AMX permission from the OS\n");
+        return 1;
+    }
+
+    // Inputs cycle through zeros, integers and decimals.
+    const float values[] = {0.0F, 1.0F, -2.0F, 3.0F, 0.5F, -1.25F, 0.1F, 2.75F};
+    static __bf16 A[M][K], B[K][N];
+    for (int m = 0; m < M; ++m) {
+        for (int k = 0; k < K; ++k) {
+            A[m][k] = static_cast<__bf16>(values[(m + k) % 8]);
+        }
+    }
+    for (int k = 0; k < K; ++k) {
+        for (int n = 0; n < N; ++n) {
+            B[k][n] = static_cast<__bf16>(values[(3 * k + n) % 8]);
+        }
+    }
+
+    // Pack A into Continuous Tile Layout
+    alignas(64) static __bf16 packed_a[M * K];
+    int out = 0;
+    for (int m = 0; m < M; m += TM) {
+        for (int k = 0; k < K; k += TK) {
+            for (int r = 0; r < TM; ++r) {
+                for (int c = 0; c < TK; ++c) {
+                    packed_a[out++] = A[m + r][k + c];
+                }
+            }
+        }
+    }
+
+    // Pack B into Continuous Tile Layout (as needed by intel amx)
+    alignas(64) static __bf16 packed_b[K * N];
+    out = 0;
+    for (int n = 0; n < N; n += 2 * TN) {
+        for (int k = 0; k < K; k += TK) {
+            for (int half = 0; half < 2; ++half) {
+                for (int r = 0; r < 16; ++r) {
+                    for (int c = 0; c < 16; ++c) {
+                        packed_b[out++] = B[k + 2 * r][n + half * TN + c];
+                        packed_b[out++] = B[k + 2 * r + 1][n + half * TN + c];
+                    }
+                }
+            }
+        }
+    }
+
+    alignas(64) static float C[M * N];
+
+    alignas(64) TileConfig config = {};
+    config.paletteId = 1;
+    for (int tile = 0; tile < 8; ++tile) {
+        config.rows[tile] = 16;
+        config.columnBytes[tile] = 64; // 32 BF16 values
+    }
+
+    constexpr int stride_a = 32 * sizeof(__bf16);
+    constexpr int stride_b = 32 * sizeof(__bf16);
+    constexpr int stride_c = N * sizeof(float);
+
+    _tile_loadconfig(&config);
+
+    for (int m = 0; m < M; m += 2 * TM) {
+        const bool has_bottom = m + TM < M;
+        for (int n = 0; n < N; n += 2 * TN) {
+            _tile_zero(0);
+            _tile_zero(1);
+            _tile_zero(2);
+            _tile_zero(3);
+
+            const __bf16 *a_top = packed_a + m * K;
+            const __bf16 *a_bot = packed_a + (m + TM) * K;
+            const __bf16 *b_ptr = packed_b + n * K;
+
+            for (int k = 0; k < K; k += TK) {
+                const __bf16 *b_left = b_ptr;
+                const __bf16 *b_right = b_ptr + 512; // 512 elements = 1024 bytes
+
+                _tile_loadd(4, a_top, stride_a);
+                _tile_loadd(6, b_left, stride_b);
+                _tile_dpbf16ps(0, 4, 6); // C00 += A_top * B_left
+
+                if (has_bottom) {
+                    _tile_loadd(5, a_bot, stride_a);
+                    _tile_dpbf16ps(2, 5, 6); // C10 += A_bot * B_left
+                }
+
+                _tile_loadd(7, b_right, stride_b);
+                _tile_dpbf16ps(1, 4, 7); // C01 += A_top * B_right
+                if (has_bottom) {
+                    _tile_dpbf16ps(3, 5, 7); // C11 += A_bot * B_right
+                }
+
+                a_top += TM * TK; // 512 elements = 1024 bytes
+                if (has_bottom) {
+                    a_bot += TM * TK;
+                }
+                b_ptr += 1024; // 1024 elements = 2048 bytes
+            }
+
+            _tile_stored(0, C + m * N + n, stride_c);
+            _tile_stored(1, C + m * N + n + TN, stride_c);
+            if (has_bottom) {
+                _tile_stored(2, C + (m + TM) * N + n, stride_c);
+                _tile_stored(3, C + (m + TM) * N + n + TN, stride_c);
+            }
+        }
+    }
+
+    // Real AMX instructions complete in program order, so no wait is needed.
+    _tile_release();
+
+    // Print the raw FP32 bits of each element of C, one matrix row per line.
+    for (int m = 0; m < M; ++m) {
+        for (int n = 0; n < N; ++n) {
+            uint32_t bits;
+            std::memcpy(&bits, &C[m * N + n], sizeof(bits));
+            std::printf("%08x ", bits);
+        }
+        std::printf("\n");
+    }
+
+    return 0;
+}
