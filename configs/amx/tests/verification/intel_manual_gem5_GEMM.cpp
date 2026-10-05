@@ -7,7 +7,17 @@
 
 #include <gem5/m5ops.h>
 
-#include "../accuracy/tile_config.hh"
+// The 64-byte memory layout consumed by AMX_TILE_LOADCONFIG.
+struct TileConfig
+{
+    uint8_t paletteId;
+    uint8_t startRow;
+    uint8_t reserved0[14];
+    uint16_t columnBytes[8];
+    uint8_t reserved1[16];
+    uint8_t rows[8];
+    uint8_t reserved2[8];
+};
 
 constexpr int TM = 16;
 constexpr int TN = 16;
@@ -17,6 +27,62 @@ constexpr int TK = 32;
 constexpr int M = 48;
 constexpr int N = 64;
 constexpr int K = 64;
+
+// The intel_manual kernel: C = A * B with a 2x2 block of accumulator tiles.
+void
+gemm(const __bf16 *packed_a, const __bf16 *packed_b, float *C)
+{
+    constexpr int stride_a = 32 * sizeof(__bf16);
+    constexpr int stride_b = 32 * sizeof(__bf16);
+    constexpr int stride_c = N * sizeof(float);
+
+    for (int m = 0; m < M; m += 2 * TM) {
+        const bool has_bottom = m + TM < M;
+        for (int n = 0; n < N; n += 2 * TN) {
+            amx_tile_zero(0);
+            amx_tile_zero(1);
+            amx_tile_zero(2);
+            amx_tile_zero(3);
+
+            const __bf16 *a_top = packed_a + m * K;
+            const __bf16 *a_bot = packed_a + (m + TM) * K;
+            const __bf16 *b_ptr = packed_b + n * K;
+
+            for (int k = 0; k < K; k += TK) {
+                const __bf16 *b_left = b_ptr;
+                const __bf16 *b_right = b_ptr + 512; // 512 elements = 1024 bytes
+
+                amx_tile_loadd(4, a_top, stride_a);
+                amx_tile_loadd(6, b_left, stride_b);
+                amx_tile_dpbf16ps(0, 4, 6); // C00 += A_top * B_left
+
+                if (has_bottom) {
+                    amx_tile_loadd(5, a_bot, stride_a);
+                    amx_tile_dpbf16ps(2, 5, 6); // C10 += A_bot * B_left
+                }
+
+                amx_tile_loadd(7, b_right, stride_b);
+                amx_tile_dpbf16ps(1, 4, 7); // C01 += A_top * B_right
+                if (has_bottom) {
+                    amx_tile_dpbf16ps(3, 5, 7); // C11 += A_bot * B_right
+                }
+
+                a_top += TM * TK; // 512 elements = 1024 bytes
+                if (has_bottom) {
+                    a_bot += TM * TK;
+                }
+                b_ptr += 1024; // 1024 elements = 2048 bytes
+            }
+
+            amx_tile_stored(0, C + m * N + n, stride_c);
+            amx_tile_stored(1, C + m * N + n + TN, stride_c);
+            if (has_bottom) {
+                amx_tile_stored(2, C + (m + TM) * N + n, stride_c);
+                amx_tile_stored(3, C + (m + TM) * N + n + TN, stride_c);
+            }
+        }
+    }
+}
 
 int
 main()
@@ -73,60 +139,14 @@ main()
         config.columnBytes[tile] = 64; // 32 BF16 values
     }
 
-    constexpr int stride_a = 32 * sizeof(__bf16);
-    constexpr int stride_b = 32 * sizeof(__bf16);
-    constexpr int stride_c = N * sizeof(float);
-
-    m5_work_begin(0, 0);
     amx_tile_loadconfig(&config);
 
-    for (int m = 0; m < M; m += 2 * TM) {
-        const bool has_bottom = m + TM < M;
-        for (int n = 0; n < N; n += 2 * TN) {
-            amx_tile_zero(0);
-            amx_tile_zero(1);
-            amx_tile_zero(2);
-            amx_tile_zero(3);
+    // Warm-up run (not traced or timed): brings A, B and C into the caches.
+    gemm(packed_a, packed_b, C);
+    amx_wait();
 
-            const __bf16 *a_top = packed_a + m * K;
-            const __bf16 *a_bot = packed_a + (m + TM) * K;
-            const __bf16 *b_ptr = packed_b + n * K;
-
-            for (int k = 0; k < K; k += TK) {
-                const __bf16 *b_left = b_ptr;
-                const __bf16 *b_right = b_ptr + 512; // 512 elements = 1024 bytes
-
-                amx_tile_loadd(4, a_top, stride_a);
-                amx_tile_loadd(6, b_left, stride_b);
-                amx_tile_dpbf16ps(0, 4, 6); // C00 += A_top * B_left
-
-                if (has_bottom) {
-                    amx_tile_loadd(5, a_bot, stride_a);
-                    amx_tile_dpbf16ps(2, 5, 6); // C10 += A_bot * B_left
-                }
-
-                amx_tile_loadd(7, b_right, stride_b);
-                amx_tile_dpbf16ps(1, 4, 7); // C01 += A_top * B_right
-                if (has_bottom) {
-                    amx_tile_dpbf16ps(3, 5, 7); // C11 += A_bot * B_right
-                }
-
-                a_top += TM * TK; // 512 elements = 1024 bytes
-                if (has_bottom) {
-                    a_bot += TM * TK;
-                }
-                b_ptr += 1024; // 1024 elements = 2048 bytes
-            }
-
-            amx_tile_stored(0, C + m * N + n, stride_c);
-            amx_tile_stored(1, C + m * N + n + TN, stride_c);
-            if (has_bottom) {
-                amx_tile_stored(2, C + (m + TM) * N + n, stride_c);
-                amx_tile_stored(3, C + (m + TM) * N + n + TN, stride_c);
-            }
-        }
-    }
-
+    m5_work_begin(0, 0);
+    gemm(packed_a, packed_b, C);
     amx_wait();
     m5_work_end(0, 0);
 

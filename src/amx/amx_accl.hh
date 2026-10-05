@@ -4,7 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
+#include <list>
 #include <iosfwd>
 #include <map>
 #include <optional>
@@ -54,8 +54,6 @@ class AmxAccl : public ClockedObject
     getCPU() const
     { return cpu; }
 
-    // TODO: replace serialized pseudo-ops with a retire-aware instruction
-    // path.
     void queueAmxLoad(ThreadContext *tc, uint64_t destination, uint64_t source,
                       uint64_t stride);
     void queueAmxStore(ThreadContext *tc, uint64_t source, uint64_t address,
@@ -224,7 +222,7 @@ class AmxAccl : public ClockedObject
         bool writeActive = false;
     };
 
-    std::deque<AmxInst> instructionQueue;
+    std::list<AmxInst> instructionQueue;
     std::array<ScoreboardEntry, NUM_TILES> tileScoreboard;
     uint64_t nextInstructionId = 0;
     bool issuingInstructions = false;

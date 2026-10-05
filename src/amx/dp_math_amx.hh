@@ -86,11 +86,13 @@ doDotProductBF16(const TileConfig &config, TileRegisterFile &tiles,
                 const int8_t *source2_pair =
                     &tiles[source2].data[group][column * sizeof(uint32_t)];
 
+                // Two separate FP32 adds, as in Intel's TDPBF16PS pseudocode:
+                // the even pair is added (and rounded) before the odd pair.
+                accumulator += detail::readBFloat16(source1_pair) *
+                               detail::readBFloat16(source2_pair);
                 accumulator +=
-                    detail::readBFloat16(source1_pair) *
-                        detail::readBFloat16(source2_pair) +
                     detail::readBFloat16(source1_pair + sizeof(uint16_t)) *
-                        detail::readBFloat16(source2_pair + sizeof(uint16_t));
+                    detail::readBFloat16(source2_pair + sizeof(uint16_t));
             }
 
             std::memcpy(destination_value, &accumulator, sizeof(accumulator));

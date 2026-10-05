@@ -190,7 +190,8 @@ AmxAccl::executeInstruction(AmxInst *instruction)
     // resource utilization tracking
     const std::optional<AmxResource> resource = issueResource(*instruction);
     if (resource) {
-        resourceTracker.issue(*resource, now); // mark resource as used
+        // mark the resource as used and schedule the nextIssueCycle = now + latency
+        resourceTracker.issue(*resource, now); 
         const amx::ResourceState &state = resourceTracker.state(*resource);
         DPRINTF(AMX,
                 "Issued instruction %llu on %s at cycle %llu; next issue "
@@ -219,7 +220,7 @@ AmxAccl::executeInstruction(AmxInst *instruction)
             executeDotProductInstruction(instruction);
             return;
         case AmxOpcode::Zero:
-            executeZeroInstruction(instruction);
+            executeZeroInstruction(instruction); 
             return;
         case AmxOpcode::Store:
             executeStoreInstruction(instruction);

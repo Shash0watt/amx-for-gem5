@@ -1,10 +1,5 @@
-// intel_manual 2x2-tile BF16 GEMM (gemms.hh) using real Intel AMX intrinsics.
-// Native counterpart of intel_manual_gem5_GEMM.cpp: same inputs, same instruction
-// sequence, same raw FP32 output, so the two outputs can be diffed bit-for-bit.
-//
-// Build & run (on a CPU with AMX, e.g. Sapphire Rapids):
+// intel_manual 2x2-tile BF16 GEMM
 //   g++ -O2 -mamx-tile -mamx-bf16 intel_manual_amx_GEMM.cpp -o intel_manual_amx_GEMM
-//   ./intel_manual_amx_GEMM > amx_C.txt
 
 #include <cstdint>
 #include <cstdio>

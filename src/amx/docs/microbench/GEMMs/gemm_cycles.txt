@@ -1,0 +1,2 @@
+gem5: 3059.7 cycles
+hardware: 10,320 cycles
