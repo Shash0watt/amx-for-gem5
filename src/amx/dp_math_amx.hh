@@ -64,9 +64,13 @@ validateDotProductOp(const TileConfig &config, int destination, int source1,
 }
 
 // Multiply BF16 pairs and accumulate their FP32 results into the destination.
+// The tile indices give the operand shapes; the source data is passed
+// separately because it may be a copy taken when the instruction issued.
 inline void
-doDotProductBF16(const TileConfig &config, TileRegisterFile &tiles,
-                 int destination, int source1, int source2)
+doDotProductBF16(const TileConfig &config, int destination, int source2,
+                 TileRegister &destination_data,
+                 const TileRegister &source1_data,
+                 const TileRegister &source2_data)
 {
     const uint8_t rows = config.rows[destination];
     const uint8_t inner_groups = config.rows[source2];
@@ -76,15 +80,15 @@ doDotProductBF16(const TileConfig &config, TileRegisterFile &tiles,
     for (uint8_t row = 0; row < rows; ++row) {
         for (uint16_t column = 0; column < output_columns; ++column) {
             int8_t *destination_value =
-                &tiles[destination].data[row][column * sizeof(float)];
+                &destination_data.data[row][column * sizeof(float)];
             float accumulator = 0.0F;
             std::memcpy(&accumulator, destination_value, sizeof(accumulator));
 
             for (uint8_t group = 0; group < inner_groups; ++group) {
                 const int8_t *source1_pair =
-                    &tiles[source1].data[row][group * sizeof(uint32_t)];
+                    &source1_data.data[row][group * sizeof(uint32_t)];
                 const int8_t *source2_pair =
-                    &tiles[source2].data[group][column * sizeof(uint32_t)];
+                    &source2_data.data[group][column * sizeof(uint32_t)];
 
                 // Two separate FP32 adds, as in Intel's TDPBF16PS pseudocode:
                 // the even pair is added (and rounded) before the odd pair.

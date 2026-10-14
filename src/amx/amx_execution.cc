@@ -202,6 +202,11 @@ AmxAccl::executeDotProductInstruction(AmxInst *instruction)
     amx::validateDotProductOp(currentConfig, instruction->destination,
                               instruction->source1, instruction->source2);
 
+    // Read the sources now, as the TMUL does at dispatch. Once Executing, the
+    // scheduler no longer treats them as read, so younger loads may overwrite
+    // the source tiles (no WAR stall for the full dot-product latency).
+    instruction->source1Data = tiles[instruction->source1];
+    instruction->source2Data = tiles[instruction->source2];
     instruction->state = AmxInst::State::Executing;
 
     DPRINTF(AMX, "Executing TDPBF16PS %llu; result is due at tick %llu\n",
@@ -316,9 +321,11 @@ AmxAccl::commitResults(AmxInst *instruction)
 
     switch (instruction->opcode) {
         case AmxOpcode::DotProduct: {
-            amx::doDotProductBF16(currentConfig, tiles,
-                                  instruction->destination,
-                                  instruction->source1, instruction->source2);
+            amx::doDotProductBF16(currentConfig, instruction->destination,
+                                  instruction->source2,
+                                  tiles[instruction->destination],
+                                  instruction->source1Data,
+                                  instruction->source2Data);
             amx::traceFloat32Tile(currentConfig, tiles,
                                   instruction->destination);
             resourceTracker.complete(AmxResource::DotProduct);

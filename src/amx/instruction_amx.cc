@@ -68,7 +68,13 @@ bool
 Instruction::readsTile(int tile) const
 {
     if (opcode == Opcode::DotProduct) {
-        return source1 == tile || source2 == tile || destination == tile;
+        // The sources are copied when the dot product issues (like hardware
+        // reading its operands at dispatch), so only a pending dot product
+        // still reads them. The destination is read until completion because
+        // the result accumulates into it.
+        const bool reads_sources = state == State::Pending;
+        return destination == tile ||
+               (reads_sources && (source1 == tile || source2 == tile));
     }
 
     return opcode == Opcode::Store && source1 == tile;

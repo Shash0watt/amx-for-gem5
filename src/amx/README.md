@@ -242,19 +242,20 @@ tryIssue() remaining work
    instruction to complete.
 
 4. **Start:** `executeDotProductInstruction()` calls `validateDotProductOp()`
-   to verify that the configured tile shapes are compatible, then marks the
-   instruction as executing. While it remains in the queue, the scheduler's
-   hazard checks treat its tiles as:
+   to verify that the configured tile shapes are compatible, copies both
+   source tiles into the instruction, then marks the instruction as
+   executing. The scheduler's hazard checks treat its tiles as:
 
    ```text
-   destination -> read and written
-   source 1    -> read
-   source 2    -> read
+                  pending           executing
+   destination -> read and written  read and written
+   source 1    -> read              (not used)
+   source 2    -> read              (not used)
    ```
 
    The destination is also read because the operation accumulates into its
-   existing FP32 values. These hazards prevent conflicting operations from
-   using the tiles before the result is ready.
+   existing FP32 values. The sources are read at issue, like hardware reading
+   its operands at dispatch, so a younger tile load can overwrite a source tile without waiting for the full dot-product latency.
 
 5. **Latency event:** When gem5 reaches the deadline, the instruction's own
    latency event calls `instructionLatencyElapsed()`. That marks the latency

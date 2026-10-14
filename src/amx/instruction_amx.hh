@@ -94,6 +94,11 @@ struct Instruction
 
     RawTileConfig configData = {};
     TileRegister loadData = {};
+
+    // Dot-product source tiles, copied at issue so a younger instruction may
+    // overwrite the source registers before the result is ready.
+    TileRegister source1Data = {};
+    TileRegister source2Data = {};
     Tick issueTick = 0;
 
     Failure failure = Failure::None;
