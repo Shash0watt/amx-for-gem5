@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 GEM5 = ROOT / "build/X86/gem5.opt"
-CONFIG = ROOT / "configs/amx/tb.py"
+CONFIG = ROOT / "configs/amx/sapphire_rapids_config.py"
 ACCURACY_BIN_DIR = ROOT / "configs/amx/binaries/accuracy"
 DEBUG_DIR = ROOT / "amx_debug"
 ACTUAL_DIR = DEBUG_DIR / "actual"

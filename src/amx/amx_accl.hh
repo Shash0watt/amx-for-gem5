@@ -1,7 +1,6 @@
 #ifndef __AMX_AMX_ACCL_HH__
 #define __AMX_AMX_ACCL_HH__
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <list>
@@ -143,11 +142,9 @@ class AmxAccl : public ClockedObject
     void noteResourceRetry(Cycles retry_cycle);
     void updateIssueRetryEvent();
     void processIssueRetryEvent();
-    bool hasActiveTileHazard(const AmxInst &instruction) const;
     bool hasOlderTileHazard(const AmxInst &instruction) const;
     bool hasOlderMemoryHazard(const AmxInst &instruction) const;
     size_t instructionMemoryBytes(const AmxInst &instruction) const;
-    bool allTilesIdle() const;
     void eraseInstruction(uint64_t instruction_id);
 
     // ---------------------------------------------------------------------
@@ -216,14 +213,7 @@ class AmxAccl : public ClockedObject
     EventFunctionWrapper latencyEvent;
     std::multimap<Tick, uint64_t> latencyDeadlines;
 
-    struct ScoreboardEntry
-    {
-        int readerCount = 0;
-        bool writeActive = false;
-    };
-
     std::list<AmxInst> instructionQueue;
-    std::array<ScoreboardEntry, NUM_TILES> tileScoreboard;
     uint64_t nextInstructionId = 0;
     bool issuingInstructions = false;
 

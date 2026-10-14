@@ -74,7 +74,6 @@ AmxAccl::executeLoadInstruction(AmxInst *instruction)
             row_bytes, start_row);
 
     beginMemoryInstruction(instruction);
-    tileScoreboard[tile].writeActive = true;
     instruction->loadData = {};
 
     for (uint8_t row = start_row;
@@ -98,8 +97,6 @@ AmxAccl::executeConfigInstruction(AmxInst *instruction)
     panic_if(instructionQueue.empty() ||
                  &instructionQueue.front() != instruction,
              "AMX tile configuration issued away from the queue front");
-    panic_if(!allTilesIdle(),
-             "AMX tile configuration issued while a tile is active");
 
     beginMemoryInstruction(instruction);
     instruction->configData.fill(0);
@@ -136,7 +133,6 @@ AmxAccl::executeDumpStateInstruction(AmxInst *instruction)
     panic_if(instructionQueue.empty() ||
                  &instructionQueue.front() != instruction,
              "AMX state dump issued away from the queue front");
-    panic_if(!allTilesIdle(), "AMX state dump issued while a tile is active");
 
     std::filesystem::create_directories(dumpDirectory);
     const std::filesystem::path output_path =
@@ -208,17 +204,6 @@ AmxAccl::executeDotProductInstruction(AmxInst *instruction)
 
     instruction->state = AmxInst::State::Executing;
 
-    for (int tile = 0; tile < NUM_TILES; ++tile) {
-        if (instruction->writesTile(tile)) {
-            panic_if(tileScoreboard[tile].writeActive,
-                     "AMX issued TDPBF16PS with an active tile writer");
-            tileScoreboard[tile].writeActive = true;
-        }
-        if (instruction->readsTile(tile)) {
-            ++tileScoreboard[tile].readerCount;
-        }
-    }
-
     DPRINTF(AMX, "Executing TDPBF16PS %llu; result is due at tick %llu\n",
             static_cast<unsigned long long>(instruction->id),
             static_cast<unsigned long long>(instruction->issueTick +
@@ -246,9 +231,6 @@ AmxAccl::executeZeroInstruction(AmxInst *instruction)
              "AMX TILEZERO target tile %u is not configured", tile);
 
     instruction->state = AmxInst::State::Executing;
-    panic_if(tileScoreboard[tile].writeActive,
-             "AMX TILEZERO issued with an active tile writer");
-    tileScoreboard[tile].writeActive = true;
 
     DPRINTF(AMX,
             "Executing TILEZERO %llu for TMM%u; result is due at tick %llu\n",
@@ -280,9 +262,6 @@ AmxAccl::executeStoreInstruction(AmxInst *instruction)
             row_bytes, start_row);
 
     beginMemoryInstruction(instruction);
-    panic_if(tileScoreboard[tile].writeActive,
-             "AMX tile store issued with an active tile writer");
-    ++tileScoreboard[tile].readerCount;
 
     for (uint8_t row = start_row;
          row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
@@ -338,7 +317,6 @@ AmxAccl::finalizeInstruction(AmxInst *instruction)
     switch (instruction->opcode) {
         case AmxOpcode::Load: {
             const uint8_t tile = instruction->destination;
-            tileScoreboard[tile].writeActive = false;
             resourceTracker.complete(AmxResource::TileLoad);
             if (instruction->failure == AmxInst::Failure::None) {
                 tiles[tile] = instruction->loadData;
@@ -352,9 +330,6 @@ AmxAccl::finalizeInstruction(AmxInst *instruction)
         }
         case AmxOpcode::Store: {
             const uint8_t tile = instruction->source1;
-            panic_if(tileScoreboard[tile].readerCount <= 0,
-                     "AMX tile store completed without an active reader");
-            --tileScoreboard[tile].readerCount;
             resourceTracker.complete(AmxResource::TileStore);
             if (instruction->failure == AmxInst::Failure::None) {
                 currentConfig.startRow = 0;
@@ -365,9 +340,6 @@ AmxAccl::finalizeInstruction(AmxInst *instruction)
             break;
         }
         case AmxOpcode::Config: {
-            panic_if(
-                !allTilesIdle(),
-                "AMX tile configuration completed while a tile is active");
             amx::TileConfig candidate = {};
             if (instruction->failure == AmxInst::Failure::None) {
                 candidate = amx::decodeTileConfig(instruction->configData);
@@ -389,21 +361,6 @@ AmxAccl::finalizeInstruction(AmxInst *instruction)
                                   instruction->source1, instruction->source2);
             amx::traceFloat32Tile(currentConfig, tiles,
                                   instruction->destination);
-
-            for (int tile = 0; tile < NUM_TILES; ++tile) {
-                if (instruction->writesTile(tile)) {
-                    panic_if(
-                        !tileScoreboard[tile].writeActive,
-                        "AMX TDPBF16PS completed without an active writer");
-                    tileScoreboard[tile].writeActive = false;
-                }
-                if (instruction->readsTile(tile)) {
-                    panic_if(
-                        tileScoreboard[tile].readerCount <= 0,
-                        "AMX TDPBF16PS completed without an active reader");
-                    --tileScoreboard[tile].readerCount;
-                }
-            }
             resourceTracker.complete(AmxResource::DotProduct);
             DPRINTF(AMX, "Completed TDPBF16PS %llu\n",
                     static_cast<unsigned long long>(instruction_id));
@@ -411,11 +368,8 @@ AmxAccl::finalizeInstruction(AmxInst *instruction)
         }
         case AmxOpcode::Zero: {
             const uint8_t tile = instruction->destination;
-            panic_if(!tileScoreboard[tile].writeActive,
-                     "AMX TILEZERO completed without an active tile writer");
             tiles[tile] = {};
             amx::traceInt8Tile(currentConfig, tiles, tile);
-            tileScoreboard[tile].writeActive = false;
             resourceTracker.complete(AmxResource::TileZero);
             DPRINTF(AMX, "Completed TILEZERO %llu for TMM%u\n",
                     static_cast<unsigned long long>(instruction_id), tile);

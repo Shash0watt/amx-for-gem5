@@ -23,12 +23,11 @@ AmxAccl::findReadyInstruction()
     // Search in program order, from oldest to youngest.
     for (AmxInst &instruction : instructionQueue) {
 
-        // Full barriers issue only from the front after older tile activity
-        // has drained. A blocked barrier also stops all younger work.
+        // Full barriers issue only from the front, so every older instruction
+        // has already completed. A blocked barrier also stops all younger work.
         if (instruction.isBarrier()) {
             const bool is_front = &instruction == &instructionQueue.front();
-            if (instruction.state == AmxInst::State::Pending && is_front &&
-                allTilesIdle()) {
+            if (instruction.state == AmxInst::State::Pending && is_front) {
                 return &instruction;
             }
 
@@ -155,36 +154,6 @@ AmxAccl::processIssueRetryEvent()
 }
 
 bool
-AmxAccl::hasActiveTileHazard(const AmxInst &instruction) const
-{
-    // Check the candidate against tile readers and writers already executing.
-    for (int tile = 0; tile < NUM_TILES; ++tile) {
-        const ScoreboardEntry &scoreboard = tileScoreboard[tile];
-
-        // RAW: this instruction wants to read the tile, but an active older
-        // instruction has not finished writing it yet.
-        const bool raw = AmxInst::hasRAW(instruction.readsTile(tile),
-                                         scoreboard.writeActive);
-
-        // WAW: this instruction wants to write the tile while an active older
-        // instruction is still writing it.
-        const bool waw = AmxInst::hasWAW(instruction.writesTile(tile),
-                                         scoreboard.writeActive);
-
-        // WAR: this instruction wants to write the tile while one or more
-        // active older instructions are still reading it.
-        const bool war = AmxInst::hasWAR(instruction.writesTile(tile),
-                                         scoreboard.readerCount > 0);
-
-        if (raw || war || waw) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool
 AmxAccl::hasOlderTileHazard(const AmxInst &instruction) const
 {
     // Check the candidate against all older unfinished queue entries.
@@ -197,8 +166,8 @@ AmxAccl::hasOlderTileHazard(const AmxInst &instruction) const
             continue;
         }
 
-        // Unlike the activeTileHazard check, these also catch dependencies on
-        // an older instruction that has not issued yet.
+        // Older work counts whether it is executing or still pending, so a
+        // younger instruction can never pass an older one that uses its tiles.
         const bool raw = instruction.hasRAW(older);
         const bool war = instruction.hasWAR(older);
         const bool waw = instruction.hasWAW(older);
@@ -284,19 +253,6 @@ AmxAccl::hasOlderMemoryHazard(const AmxInst &instruction) const
     }
 
     panic("AMX scheduler checked an instruction outside its queue");
-}
-
-bool
-AmxAccl::allTilesIdle() const
-{
-    // Configuration is safe only when no tile is being read or written.
-    for (const ScoreboardEntry &entry : tileScoreboard) {
-        if (entry.writeActive || entry.readerCount != 0) {
-            return false;
-        }
-    }
-
-    return true;
 }
 
 // -------------------------------------------------------------------------
