@@ -1,5 +1,3 @@
-#include <vector>
-
 #include "amx/amx_accl.hh"
 #include "base/trace.hh"
 #include "debug/AMX.hh"
@@ -7,24 +5,21 @@
 namespace gem5
 {
 
-// Mutiple amx instructions can run at the same time. each takes a certain
-// number of cycles to finsih. Instead of creating a seperate event for each
-// instruction we use one shared latencyEvent and a list of deadline
+// Every issued AMX instruction (except DumpState) must wait a minimum number
+// of cycles before it may complete.
 
-// 1. we queue a deadline scheduleInstructionLatency()
-// 2. we schedule an event at the earliest deadline armLatencyEvent()
-// 3. we handle the wakeups processLatencyEvent()
-//     - this is importatnt because we can have multiple events ie loads and a
-//     dotproduct finsih at the same time, so we collect all instructions whos
-//     deadlines have arrived
-// 4. we finish the instruction execution through instructionLatencyElapsed()
-// which marks the instruction as complete and checkes if it's ready to reture
-
+// 1. at issue, scheduleInstructionLatency() schedules one event per
+//    instruction at issueTick + latency
+// 2. when that event fires, instructionLatencyElapsed() marks the latency as
+//    finished and checks whether the instruction is ready to retire
+//
+// The event carries the instruction id rather than a pointer. If the
+// instruction has already left the queue (e.g. it failed and finished early)
+// the lookup finds nothing and the event does nothing.
 
 void
 AmxAccl::scheduleInstructionLatency(uint64_t instruction_id, Cycles latency)
 {
-    // Record when this instruction has waited for its required AMX latency.
     AmxInst *instruction = findInstruction(instruction_id);
     panic_if(!instruction,
              "AMX scheduled latency for unknown instruction %llu",
@@ -32,54 +27,18 @@ AmxAccl::scheduleInstructionLatency(uint64_t instruction_id, Cycles latency)
 
     // Measure from the issue time, not from a later clock edge.
     const Tick deadline = instruction->issueTick + cyclesToTicks(latency);
-    latencyDeadlines.emplace(deadline, instruction_id);
+
+    // gem5 deletes this event after it runs (the final `true` argument).
+    schedule(new EventFunctionWrapper(
+                 [this, instruction_id] {
+                     instructionLatencyElapsed(instruction_id);
+                 },
+                 name() + ".instruction_latency", true),
+             deadline);
 
     DPRINTF(AMX, "Instruction %llu latency deadline is tick %llu\n",
             static_cast<unsigned long long>(instruction_id),
             static_cast<unsigned long long>(deadline));
-    armLatencyEvent();
-}
-
-void
-AmxAccl::armLatencyEvent()
-{
-    // Keep one event scheduled for the earliest instruction deadline.
-    if (latencyDeadlines.empty()) {
-        if (latencyEvent.scheduled()) {
-            deschedule(latencyEvent);
-        }
-        return;
-    }
-
-    const Tick next_deadline = latencyDeadlines.begin()->first;
-    panic_if(next_deadline < curTick(),
-             "AMX latency deadline was scheduled in the past");
-
-    if (!latencyEvent.scheduled()) {
-        schedule(latencyEvent, next_deadline);
-    } else if (latencyEvent.when() != next_deadline) {
-        reschedule(latencyEvent, next_deadline, true);
-    }
-}
-
-void
-AmxAccl::processLatencyEvent()
-{
-    // Process every instruction whose required latency has now elapsed.
-    // Remove them first because completion may issue new instructions.
-    std::vector<uint64_t> elapsed_instructions;
-    auto deadline = latencyDeadlines.begin();
-    while (deadline != latencyDeadlines.end() &&
-           deadline->first <= curTick()) {
-        elapsed_instructions.push_back(deadline->second);
-        deadline = latencyDeadlines.erase(deadline);
-    }
-
-    for (const uint64_t instruction_id : elapsed_instructions) {
-        instructionLatencyElapsed(instruction_id);
-    }
-
-    armLatencyEvent();
 }
 
 void

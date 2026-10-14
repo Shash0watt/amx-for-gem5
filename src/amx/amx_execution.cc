@@ -305,16 +305,27 @@ AmxAccl::completeInstructionIfReady(uint64_t instruction_id)
         return;
     }
 
-    finalizeInstruction(instruction); // finish all the bookeeping/commit stuff
+    commitResults(instruction); // finish all the bookeeping/commit stuff
                                       // for the instruction
 }
 
 void
-AmxAccl::finalizeInstruction(AmxInst *instruction)
+AmxAccl::commitResults(AmxInst *instruction)
 {
     const uint64_t instruction_id = instruction->id;
 
     switch (instruction->opcode) {
+        case AmxOpcode::DotProduct: {
+            amx::doDotProductBF16(currentConfig, tiles,
+                                  instruction->destination,
+                                  instruction->source1, instruction->source2);
+            amx::traceFloat32Tile(currentConfig, tiles,
+                                  instruction->destination);
+            resourceTracker.complete(AmxResource::DotProduct);
+            DPRINTF(AMX, "Completed TDPBF16PS %llu\n",
+                    static_cast<unsigned long long>(instruction_id));
+            break;
+        }
         case AmxOpcode::Load: {
             const uint8_t tile = instruction->destination;
             resourceTracker.complete(AmxResource::TileLoad);
@@ -353,17 +364,6 @@ AmxAccl::finalizeInstruction(AmxInst *instruction)
             DPRINTF(AMX, "Committed tile configuration %llu with palette %u\n",
                     static_cast<unsigned long long>(instruction_id),
                     static_cast<unsigned>(candidate.paletteId));
-            break;
-        }
-        case AmxOpcode::DotProduct: {
-            amx::doDotProductBF16(currentConfig, tiles,
-                                  instruction->destination,
-                                  instruction->source1, instruction->source2);
-            amx::traceFloat32Tile(currentConfig, tiles,
-                                  instruction->destination);
-            resourceTracker.complete(AmxResource::DotProduct);
-            DPRINTF(AMX, "Completed TDPBF16PS %llu\n",
-                    static_cast<unsigned long long>(instruction_id));
             break;
         }
         case AmxOpcode::Zero: {

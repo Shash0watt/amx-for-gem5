@@ -102,11 +102,10 @@ issueRetryEvent -> tryIssue() -> scan again
 
 The main scheduling rules are:
 
-- Configuration is a full barrier. It must be at the front of the queue with
-  every tile idle, and younger work cannot pass it.
-- Active tile readers and writers are tracked by the scoreboard.
-- Dependencies on older instructions are also checked directly in the queue.
-  This catches older instructions that have not reached the scoreboard yet.
+- Configuration is a full barrier. It must be at the front of the queue, so
+  every older instruction has completed, and younger work cannot pass it.
+- Tile and memory dependencies are checked against every older unfinished
+  instruction in the queue, whether it is still pending or already executing.
 - An unavailable pipeline blocks only instructions using that pipeline. The
   scheduler continues looking for independent work on other pipelines.
 - Executing instructions remain in the queue until completion, but the
@@ -119,7 +118,7 @@ Three kinds of delayed activity wake the model later:
 | Activity | Why it is scheduled | What happens when it runs |
 | --- | --- | --- |
 | `issueRetryEvent` | An otherwise-ready instruction is waiting for its pipeline's next issue cycle. | Calls `tryIssue()` to scan the queue again. |
-| `latencyEvent` | An issued load, dot product, zero, store, or configuration has not reached its minimum execution latency. | Marks every instruction due at that tick as having finished its latency wait. |
+| Per-instruction latency event | An issued load, dot product, zero, store, or configuration has not reached its minimum execution latency. One self-deleting event is scheduled per instruction at issue. | Marks that instruction as having finished its latency wait and checks whether it can complete. |
 | Memory callbacks | A translation or cache request is still outstanding. Gem5's MMU and memory system control this timing. | Drain memory counters and check whether the memory stage is complete. |
 
 The retry event controls when work may **start**. The latency event and memory
@@ -132,22 +131,22 @@ finishes last completes the instruction.
 ### Tile load
 
 1. `queueAmxLoad()` creates an instruction and calls `tryIssue()`.
-2. `findReadyInstruction()` rejects it while an older or active instruction has
-   a conflicting tile dependency.
-3. `executeLoadInstruction()` marks the destination tile busy, clears it, and
-   dispatches one logical read for every configured row.
+2. `findReadyInstruction()` rejects it while an older unfinished instruction
+   has a conflicting tile or memory dependency.
+3. `executeLoadInstruction()` clears its staging buffer and dispatches one
+   logical read for every configured row.
 4. `amx_memory.cc` splits each row across cache lines when necessary. Every
    chunk is translated and sent through the timing memory port.
 5. Responses are copied into the correct tile row. The load finishes only when
    both memory and its configured minimum latency have completed.
-6. `finalizeInstruction()` releases the scoreboard and load-pipeline state,
-   removes the instruction, and runs the issue loop again.
+6. `finalizeInstruction()` commits the staged rows to the tile, releases the
+   load-pipeline state, removes the instruction, and runs the issue loop again.
 
 ### Tile configuration
 
 1. `queueAmxLoadConfig()` queues a configuration-memory read.
 2. The scheduler treats configuration as a full barrier: it must reach the
-   queue front and all tile activity must be idle, while younger instructions
+   queue front, so all older work has completed, while younger instructions
    cannot pass it.
 3. The 64-byte configuration is read through the same translation and timing
    memory path as a tile load.
@@ -158,19 +157,19 @@ finishes last completes the instruction.
 ### Tile store
 
 1. `queueAmxStore()` creates a store whose source tile is a read dependency.
-2. The scheduler waits for older writers to that tile, then the store reserves
-   a tile-reader scoreboard entry and the store pipeline.
+2. The scheduler waits for older writers to that tile and for older
+   overlapping loads and stores, then the store reserves the store pipeline.
+   Younger writers to the source tile wait for the store to complete (WAR).
 3. `executeStoreInstruction()` dispatches configured rows beginning at
    `startRow`, using the supplied base address and stride.
 4. `amx_memory.cc` splits each row at cache-line boundaries, translates with
    write access, copies tile bytes into write packets, and waits for responses.
 5. The store completes only after both all memory activity and its configured
    minimum latency finish. Successful completion clears `startRow`, releases
-   the tile reader and store resource, removes the instruction, and retries
-   queued work.
+   the store resource, removes the instruction, and retries queued work.
 
 A configuration queued after a store is a useful completion barrier: it cannot
-commit while the store still holds its source-tile reader reservation. Tests
+issue until the store has completed and left the queue. Tests
 that need to inspect stored bytes can put a verification configuration and
 tile reload after that barrier instead of assuming pseudo-op calls synchronize
 the guest CPU with the accelerator.
@@ -207,10 +206,9 @@ executeDotProductInstruction()
         |
         +--> validate the tile shapes
         +--> change state to Executing
-        +--> reserve its tile reads and write
         |
         v
-gem5 latencyEvent
+this instruction's latency event
         |
         v
 instructionLatencyElapsed()
@@ -220,7 +218,7 @@ finalizeInstruction()
         |
         +--> doDotProductBF16()
         +--> update the destination tile
-        +--> release tile and pipeline state
+        +--> release pipeline state
         +--> remove the instruction from the queue
         |
         v
@@ -233,8 +231,8 @@ tryIssue() remaining work
    calls `tryIssue()`.
 
 2. **Waiting in the scheduler:** `findReadyInstruction()` checks configuration
-   barriers, dependencies on older work, active tile readers and writers, and
-   dot-product pipeline availability. Independent younger work may issue while
+   barriers, tile dependencies on older unfinished work, and dot-product
+   pipeline availability. Independent younger work may issue while
    this instruction is blocked.
 
 3. **Issue and timing:** `executeInstruction()` reserves the dot-product
@@ -243,29 +241,29 @@ tryIssue() remaining work
    later independent dot product may issue; it does not have to wait for this
    instruction to complete.
 
-4. **Tile reservation:** `executeDotProductInstruction()` calls
-   `validateDotProductOp()` to verify that the configured tile shapes are
-   compatible. It then marks the instruction as executing and reserves its
-   tile accesses:
+4. **Start:** `executeDotProductInstruction()` calls `validateDotProductOp()`
+   to verify that the configured tile shapes are compatible, then marks the
+   instruction as executing. While it remains in the queue, the scheduler's
+   hazard checks treat its tiles as:
 
    ```text
-   destination -> reader and writer
-   source 1    -> reader
-   source 2    -> reader
+   destination -> read and written
+   source 1    -> read
+   source 2    -> read
    ```
 
    The destination is also read because the operation accumulates into its
-   existing FP32 values. These reservations prevent conflicting operations
-   from using the tiles before the result is ready.
+   existing FP32 values. These hazards prevent conflicting operations from
+   using the tiles before the result is ready.
 
-5. **Latency event:** When gem5 reaches the deadline,
-   `processLatencyEvent()` calls `instructionLatencyElapsed()`. That marks the
-   latency as elapsed and sends the dot product to
-   `finishDotProductInstruction()`.
+5. **Latency event:** When gem5 reaches the deadline, the instruction's own
+   latency event calls `instructionLatencyElapsed()`. That marks the latency
+   as elapsed and calls `completeInstructionIfReady()`, which sends the dot
+   product to `finalizeInstruction()`.
 
 6. **Calculation and completion:** `doDotProductBF16()` reads BF16 pairs from
    the source tiles, multiplies them, and accumulates FP32 results into the
-   destination. Completion then releases the tile reservations, records that
+   destination. Completion then records that
    the resource is no longer in flight, removes the instruction from the
    queue, and calls `tryIssue()` so newly unblocked work can start.
 
@@ -285,8 +283,8 @@ different pipeline. `AmxAccl.py` contains the default timing values.
 ## Important invariants
 
 - Configuration instructions are full ordering barriers.
-- The tile scoreboard represents currently executing work. Queue-order hazards
-  against older instructions are checked separately by the scheduler.
+- The instruction queue is the only record of in-flight tile and memory use.
+  Hazards are checked against every older unfinished queue entry.
 - Pipeline issue restrictions do not block independent operations that use a
   different resource.
 - Loads complete only after both their memory work and fixed latency finish.

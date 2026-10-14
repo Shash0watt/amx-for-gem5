@@ -41,7 +41,7 @@ cd util/m5 && scons build/x86/out/m5 && cd ../../
 
 ### 3. Run Simulation
 ```bash
-./build/X86/gem5.opt -rs configs/amx/tb.py
+./build/X86/gem5.opt -rs configs/amx/sapphire_rapids_config.py
 ```
 
 ## Developer Utilities

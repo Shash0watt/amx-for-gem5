@@ -27,9 +27,7 @@ AmxAccl::AmxAccl(const AmxAcclParams &params)
                       params.zero_issue_throughput,
                       params.store_issue_throughput),
       issueRetryEvent(
-          [this] { processIssueRetryEvent(); }, name() + ".issue_retry"),
-      latencyEvent(
-          [this] { processLatencyEvent(); }, name() + ".instruction_latency")
+          [this] { processIssueRetryEvent(); }, name() + ".issue_retry")
 {
     amx::clearTiles(tiles);
     DPRINTF(AMX, "Created the AMX SimObject\n");

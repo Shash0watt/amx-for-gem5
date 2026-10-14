@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <list>
 #include <iosfwd>
-#include <map>
 #include <optional>
 #include <string>
 
@@ -160,7 +159,7 @@ class AmxAccl : public ClockedObject
     void writeStateDump(std::ostream &stream,
                         const std::string &dump_name) const;
     void completeInstructionIfReady(uint64_t instruction_id);
-    void finalizeInstruction(AmxInst *instruction);
+    void commitResults(AmxInst *instruction);
     void reportInstructionFailure(const AmxInst &instruction,
                                   const char *op_name) const;
     void commitTileConfig(const amx::TileConfig &config);
@@ -169,8 +168,6 @@ class AmxAccl : public ClockedObject
     // Generic instruction latency
     // ---------------------------------------------------------------------
     void scheduleInstructionLatency(uint64_t instruction_id, Cycles latency);
-    void armLatencyEvent();
-    void processLatencyEvent();
     void instructionLatencyElapsed(uint64_t instruction_id);
 
     // ---------------------------------------------------------------------
@@ -210,8 +207,6 @@ class AmxAccl : public ClockedObject
 
     EventFunctionWrapper issueRetryEvent;
     std::optional<Cycles> nextIssueRetryCycle;
-    EventFunctionWrapper latencyEvent;
-    std::multimap<Tick, uint64_t> latencyDeadlines;
 
     std::list<AmxInst> instructionQueue;
     uint64_t nextInstructionId = 0;

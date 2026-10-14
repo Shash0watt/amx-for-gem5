@@ -142,7 +142,7 @@ AmxAccl::queueAmxDumpState(const std::string &dump_name)
 // Issue and high-level execution flow
 // -------------------------------------------------------------------------
 
-// whenever this function is called it issues the first 'ready' instruction at the head of the queue
+// whenever this function is called it issues the all the 'ready & issuable' instruction at the head of the queue
 void
 AmxAccl::tryIssue()
 {
@@ -191,6 +191,8 @@ AmxAccl::executeInstruction(AmxInst *instruction)
     const std::optional<AmxResource> resource = issueResource(*instruction);
     if (resource) {
         // mark the resource as used and schedule the nextIssueCycle = now + latency
+        // nextIssueCycle is the last check in findReadyInstruction
+        // it helps model the throughput values
         resourceTracker.issue(*resource, now); 
         const amx::ResourceState &state = resourceTracker.state(*resource);
         DPRINTF(AMX,
@@ -205,6 +207,9 @@ AmxAccl::executeInstruction(AmxInst *instruction)
 
     if (instruction->opcode != AmxOpcode::DumpState) {
         instruction->latencyElapsed = false;
+        // This is to model the completion deadline (aka latency).
+        // this uses some helper logic and the gem5 queue to call the functions that 'commit' 
+        // the results of a instruction
         scheduleInstructionLatency(instruction->id,
                                    instructionLatency(*instruction));
     }

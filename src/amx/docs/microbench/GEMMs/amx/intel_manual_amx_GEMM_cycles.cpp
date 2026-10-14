@@ -1,11 +1,12 @@
 // Cycle count of the intel_manual 2x2-tile BF16 GEMM (intel_manual_amx_GEMM.cpp)
-//   g++ -O2 -mamx-tile -mamx-bf16 intel_manual_amx_GEMM_cycles.cpp -o intel_manual_amx_GEMM_cycles
+//   g++ -O2 -mamx-tile -mamx-bf16 cycles.cpp -o cycles
 
 #include <cstdint>
 #include <cstdio>
 #include <immintrin.h>
 #include <linux/perf_event.h>
 #include <sys/syscall.h>
+#include <time.h>
 #include <unistd.h>
 
 // The 64-byte memory layout consumed by LDTILECFG.
@@ -24,10 +25,10 @@ constexpr int TM = 16;
 constexpr int TN = 16;
 constexpr int TK = 32;
 
-// M = 48 exercises both the 2x2 path and the final 16-row (has_bottom = false) path.
-constexpr int M = 48;
-constexpr int N = 64;
-constexpr int K = 64;
+// A is 16 x 2048, B is 2048 x 512, and C is 16 x 512.
+constexpr int M = 16;
+constexpr int N = 512;
+constexpr int K = 2048;
 
 // Read the core cycle counter (same as microbench/intrinsic/load_trgh.c).
 static inline uint64_t
@@ -38,6 +39,15 @@ getCycles(int perf_fd)
     read(perf_fd, &count, sizeof(count));
     _mm_lfence();
     return count;
+}
+
+// Wall-clock time in nanoseconds (vDSO call, no syscall).
+static inline uint64_t
+getNanos()
+{
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+    return ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 }
 
 // The intel_manual kernel: C = A * B with a 2x2 block of accumulator tiles.
@@ -183,14 +193,25 @@ main()
     uint64_t end = getCycles(perf_fd);
     const uint64_t offset = end - start;
 
+    // The wall-clock reads sit inside the cycle reads so the time spent in the
+    // read() syscalls (not counted as user cycles) is kept out of the timing.
     start = getCycles(perf_fd);
+    const uint64_t t0 = getNanos();
     gemm(packed_a, packed_b, C);
+    const uint64_t t1 = getNanos();
     end = getCycles(perf_fd);
 
     _tile_release();
     close(perf_fd);
 
-    std::printf("Cycles Taken: %lu\n", end - start - offset);
+    const uint64_t cycles = end - start - offset;
+    const uint64_t nanos = t1 - t0;
+
+    // Average core frequency over the timed run: cycles per nanosecond = GHz.
+    std::printf("Cycles Taken: %lu\n", cycles);
+    std::printf("Time Taken: %lu ns\n", nanos);
+    std::printf("Average Frequency: %.3f GHz\n",
+                static_cast<double>(cycles) / static_cast<double>(nanos));
 
     return 0;
 }
