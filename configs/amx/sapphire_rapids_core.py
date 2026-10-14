@@ -16,13 +16,16 @@ class SapphireRapidsCore(SimpleCore):
 
         self.core.amx_accl = AmxAccl(dump_directory=dump_directory)
 
-        # Coherent - because we want the L1D only forwards invalidation snoops to the CPU's LSQ if the port above it snoops.
-        # Zero latency - because we expect real load ports connect directly to the L1D, so the xbar
-        # should only add contention.
-        # Bandwidth (not precicely modeled) - Sapphire Rapids does 3 loads/cycle (2 for AVX-512/AMX). This
-        # xbar has one request path to the L1D shared by the CPU and AMX, so we get ~1 read/cycle combined, and 32 B/cycle of responses to each requester.
+        # Coherent - becauuse the 03 cpu wants snooping.
+        # Zero latency - real load ports connect directly to the L1D, so the xbar should
+        # only add contention.
+        # Bandwidth (not precisely modeled) - Sapphire Rapids does 3 loads/cycle (2 for
+        # AVX-512/AMX). Packets with data occupy a path for at least 1 cycle, and each
+        # requester has one response path, so we get 1 load/cycle for the CPU and 1 line
+        # (64 B)/cycle for AMX. Writes share one request path: 1 write/cycle combined.
         self.l1d_amx_xbar = CoherentXBar(
             width=64,
+            header_latency=0,
             frontend_latency=0,
             forward_latency=0,
             response_latency=0,

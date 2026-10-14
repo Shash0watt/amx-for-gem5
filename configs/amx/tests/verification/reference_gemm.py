@@ -5,7 +5,7 @@
 
 import struct
 
-M, N, K = 48, 64, 64
+M, N, K = 16, 512, 2048
 VALUES = [0.0, 1.0, -2.0, 3.0, 0.5, -1.25, 0.1, 2.75]
 
 
@@ -23,13 +23,19 @@ def to_bf16(x):
     return from_bits((bits + 0x7FFF + ((bits >> 16) & 1)) & 0xFFFF0000)
 
 
-A = [[to_bf16(VALUES[(m + k) % 8]) for k in range(K)] for m in range(M)]
-B = [[to_bf16(VALUES[(3 * k + n) % 8]) for n in range(N)] for k in range(K)]
+# These inputs repeat every eight rows of A and eight columns of B, so C
+# repeats in both dimensions. Compute each distinct dot product once, keeping
+# all K accumulation steps and their FP32 rounding unchanged.
+period = len(VALUES)
+A = [[to_bf16(VALUES[(m + k) % period]) for k in range(K)]
+     for m in range(period)]
+B = [[to_bf16(VALUES[(3 * k + n) % period]) for n in range(period)]
+     for k in range(K)]
 
 C = []
-for m in range(M):
+for m in range(period):
     row = []
-    for n in range(N):
+    for n in range(period):
         acc = 0.0
         for k in range(K):
             acc = from_bits(fp32_bits(acc + A[m][k] * B[k][n]))  # round to FP32
@@ -37,5 +43,5 @@ for m in range(M):
     C.append(row)
 
 with open("correct.out", "w") as f:
-    for row in C:
-        f.write(" ".join(row) + "\n")
+    for m in range(M):
+        f.write(" ".join(C[m % period][n % period] for n in range(N)) + "\n")

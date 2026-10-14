@@ -56,6 +56,10 @@ processor = BaseCPUProcessor(
     ]
 )
 
+# # Show CPU progress during input initialization and packing, before AMX starts.
+# for core in processor.get_cores():
+#     core.get_simobject().progress_interval = "10kHz"  # Every 100 simulated us.
+
 cache_hierarchy = PrivateL1PrivateL2CacheHierarchy(
     # Sapphire Rapids has a 48 KiB 12-way L1D, but the stock hierarchy is fixed at
     # 8-way and gem5 needs a power-of-two set count, so I'm rounding up to 64 KiB
@@ -77,8 +81,8 @@ board = SimpleBoard(
 ## ================================================
 # ./[path to gem5] --debug-help gives more flag that we can use
 def workbegin_handler():
-    print(f"\n--- Start of AMX Region ---\n")
     m5.debug.flags["AMX"].enable()
+    print(f"\n--- Start of AMX Region ---\n")
     yield False  # Yielding true would end the simulaltion right away
 
 
@@ -102,7 +106,9 @@ simulator = Simulator(
     },
 )
 
-print(f"Starting SE Simulation for: {binary_path.name}")
+# Trace accelerator activity during warm-up as well as the measured region.
+m5.debug.flags["AMX"].enable()
+print(f"Starting SE Simulation for: {binary_path.name}", flush=True)
 simulator.run()
 print(simulator.get_last_exit_event_cause())
 print("Simulation Finished")

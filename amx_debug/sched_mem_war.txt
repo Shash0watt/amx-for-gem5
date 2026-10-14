@@ -1,0 +1,51 @@
+AMX STATE DUMP: sched_mem_war
+
+Simulation
+  Tick        : 125180860
+  Cycle       : 262985
+  Accelerator : board.processor.cores.core.amx_accl
+
+Tile Configuration
+  Configured  : yes
+  Palette ID  : 1
+  Start Row   : 0
+
+Tile Registers (values shown as BF16)
+
+TMM0 - ACTIVE
+  Rows         : 1
+  Column bytes : 8
+ Row [00]:          0          0          0          0 
+
+TMM1 - ACTIVE
+  Rows         : 1
+  Column bytes : 8
+ Row [00]:          1          2          3          4 
+
+TMM2 - ACTIVE
+  Rows         : 1
+  Column bytes : 8
+ Row [00]:          5          6          7          8 
+
+TMM3 - ACTIVE
+  Rows         : 1
+  Column bytes : 8
+ Row [00]:          5          6          7          8 
+
+TMM4 - ACTIVE
+  Rows         : 1
+  Column bytes : 8
+ Row [00]:          5          6          7          8 
+
+TMM5 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+
+TMM6 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+
+TMM7 - UNCONFIGURED
+  Rows         : 0
+  Column bytes : 0
+

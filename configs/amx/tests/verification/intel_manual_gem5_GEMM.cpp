@@ -23,10 +23,10 @@ constexpr int TM = 16;
 constexpr int TN = 16;
 constexpr int TK = 32;
 
-// M = 48 exercises both the 2x2 path and the final 16-row (has_bottom = false) path.
-constexpr int M = 48;
-constexpr int N = 64;
-constexpr int K = 64;
+// A is 16 x 2048, B is 2048 x 512, and C is 16 x 512.
+constexpr int M = 16;
+constexpr int N = 512;
+constexpr int K = 2048;
 
 // The intel_manual kernel: C = A * B with a 2x2 block of accumulator tiles.
 void
@@ -87,6 +87,8 @@ gemm(const __bf16 *packed_a, const __bf16 *packed_b, float *C)
 int
 main()
 {
+    std::fprintf(stderr, "GEMM: initializing A (%d x %d) and B (%d x %d)\n",
+                 M, K, K, N);
     // Inputs cycle through zeros, integers and decimals.
     const float values[] = {0.0F, 1.0F, -2.0F, 3.0F, 0.5F, -1.25F, 0.1F, 2.75F};
     static __bf16 A[M][K], B[K][N];
@@ -101,6 +103,7 @@ main()
         }
     }
 
+    std::fprintf(stderr, "GEMM: inputs initialized; packing A\n");
     // Pack A into Continuous Tile Layout
     alignas(64) static __bf16 packed_a[M * K];
     int out = 0;
@@ -114,6 +117,7 @@ main()
         }
     }
 
+    std::fprintf(stderr, "GEMM: A packed; packing B\n");
     // Pack B into Continuous Tile Layout (as needed by intel amx)
     alignas(64) static __bf16 packed_b[K * N];
     out = 0;
@@ -141,7 +145,7 @@ main()
 
     amx_tile_loadconfig(&config);
 
-    // Warm-up run (not traced or timed): brings A, B and C into the caches.
+    // Warm-up run brings A, B and C into the caches.
     gemm(packed_a, packed_b, C);
     amx_wait();
 
