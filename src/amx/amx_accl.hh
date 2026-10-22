@@ -150,19 +150,18 @@ class AmxAccl : public ClockedObject
     // Instruction execution and completion
     // ---------------------------------------------------------------------
     void executeInstruction(AmxInst *instruction);
+    void completeInstructionIfReady(uint64_t instruction_id);
+    void reportInstructionFailure(const AmxInst &instruction) const;
+    void commitResults(AmxInst *instruction);
     void executeLoadInstruction(AmxInst *instruction);
+    void executeStoreInstruction(AmxInst *instruction);
     void executeConfigInstruction(AmxInst *instruction);
+    void commitTileConfig(const amx::TileConfig &config);
     void executeDotProductInstruction(AmxInst *instruction);
     void executeZeroInstruction(AmxInst *instruction);
-    void executeStoreInstruction(AmxInst *instruction);
     void executeDumpStateInstruction(AmxInst *instruction);
     void writeStateDump(std::ostream &stream,
                         const std::string &dump_name) const;
-    void completeInstructionIfReady(uint64_t instruction_id);
-    void commitResults(AmxInst *instruction);
-    void reportInstructionFailure(const AmxInst &instruction,
-                                  const char *op_name) const;
-    void commitTileConfig(const amx::TileConfig &config);
 
     // ---------------------------------------------------------------------
     // Generic instruction latency

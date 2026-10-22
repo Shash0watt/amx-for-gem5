@@ -29,13 +29,13 @@ enum class Opcode
 
 struct Instruction
 {
+    // Failures of the asynchronous memory callbacks, reported at commit.
     enum class Failure
     {
         None,
         Translation,
         MemoryError,
-        MissingData,
-        InvalidConfig
+        MissingData
     };
 
     enum class State
@@ -103,7 +103,6 @@ struct Instruction
 
     Failure failure = Failure::None;
     Fault fault = NoFault;
-    std::string failureReason;
     State state = State::Pending;
 
   private:

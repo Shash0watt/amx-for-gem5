@@ -12,7 +12,7 @@ namespace gem5
 {
 
 // at a high level a instruction follows this path
-// 1. mark the instrcution as exectuing (reads, writes & pending completion)
+// 1. reset the counters that track reads, writes & pending completion
 // 2. split each access at cache-line boundaries
 // (becaause you can only make one request per line)
 // 3. address translation on the vaddr
@@ -28,11 +28,6 @@ namespace gem5
 void
 AmxAccl::beginMemoryInstruction(AmxInst *instruction)
 {
-
-    // Mark as executing because we can only tell completion by the callback
-    // and counters
-    instruction->state = AmxInst::State::Executing;
-
     // Counters, make sure that we cannot finish until all translation
     // callbacks and all resulting memory responses have drained.
     instruction->outstandingTranslations = 0;

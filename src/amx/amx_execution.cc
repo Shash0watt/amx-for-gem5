@@ -9,6 +9,16 @@
 namespace gem5
 {
 
+// Every instruction follows the same lifecycle:
+// 1. executeInstruction(): shared issue bookkeeping, then execute<Op>()
+// 2. execute<Op>(): check preconditions, then start the work (send memory
+//    requests or copy operands)
+// 3. completeInstructionIfReady(): waits for memory and the latency
+// 4. commitResults(): apply the architectural effect and free the pipeline
+//
+// DumpState is the exception: it is a debug tool that finishes inside
+// executeDumpStateInstruction() without a latency or a commit.
+
 namespace
 {
 
@@ -21,13 +31,123 @@ tileRowAddress(const amx::Instruction &instruction, uint8_t row)
 } // anonymous namespace
 
 // -------------------------------------------------------------------------
-// Failure reporting
+// Issue
 // -------------------------------------------------------------------------
 
 void
-AmxAccl::reportInstructionFailure(const AmxInst &instruction,
-                                  const char *op_name) const
+AmxAccl::executeInstruction(AmxInst *instruction)
 {
+    // Track issue time
+    const Cycles now = curCycle();
+    instruction->issueTick = curTick();
+
+    // resource utilization tracking
+    const std::optional<AmxResource> resource = issueResource(*instruction);
+    if (resource) {
+        // mark the resource as used and schedule the nextIssueCycle = now + latency
+        // nextIssueCycle is the last check in findReadyInstruction
+        // it helps model the throughput values
+        resourceTracker.issue(*resource, now);
+        const amx::ResourceState &state = resourceTracker.state(*resource);
+        DPRINTF(AMX,
+                "Issued instruction %llu on %s at cycle %llu; next issue "
+                "cycle %llu, %u in flight\n",
+                static_cast<unsigned long long>(instruction->id),
+                amx::resourceName(*resource),
+                static_cast<unsigned long long>(now),
+                static_cast<unsigned long long>(state.nextIssueCycle),
+                state.inFlight);
+    }
+
+    if (instruction->opcode != AmxOpcode::DumpState) {
+        // This is to model the completion deadline (aka latency).
+        // this uses some helper logic and the gem5 queue to call the functions
+        // that 'commit' the results of a instruction
+        instruction->latencyElapsed = false;
+        scheduleInstructionLatency(instruction->id,
+                                   instructionLatency(*instruction));
+        instruction->state = AmxInst::State::Executing;
+    }
+
+    switch (instruction->opcode) {
+        case AmxOpcode::Load:
+            executeLoadInstruction(instruction);
+            return;
+        case AmxOpcode::Store:
+            executeStoreInstruction(instruction);
+            return;
+        case AmxOpcode::Config:
+            executeConfigInstruction(instruction);
+            return;
+        case AmxOpcode::DotProduct:
+            executeDotProductInstruction(instruction);
+            return;
+        case AmxOpcode::Zero:
+            executeZeroInstruction(instruction);
+            return;
+        case AmxOpcode::DumpState:
+            executeDumpStateInstruction(instruction);
+            return;
+    }
+
+    panic("AMX scheduler selected an unknown opcode");
+}
+
+// -------------------------------------------------------------------------
+// Completion
+// -------------------------------------------------------------------------
+
+void
+AmxAccl::completeInstructionIfReady(uint64_t instruction_id)
+{
+    AmxInst *instruction = findInstruction(instruction_id);
+    if (!instruction || instruction->state != AmxInst::State::Executing) {
+        return;
+    }
+
+    const bool is_memory_op = instruction->opcode == AmxOpcode::Load ||
+                              instruction->opcode == AmxOpcode::Store ||
+                              instruction->opcode == AmxOpcode::Config;
+
+    if (is_memory_op) {
+        if (!instruction->translationDispatchComplete ||
+            instruction->outstandingTranslations != 0 ||
+            instruction->outstandingRequests != 0) {
+            return;
+        }
+        instruction->memoryComplete = true;
+    }
+
+    // Failed instructions can finish immediately without waiting for latency
+    if (instruction->failure == AmxInst::Failure::None &&
+        !instruction->latencyElapsed) {
+        return;
+    }
+
+    commitResults(instruction);
+}
+
+// Memory failures are recorded by the asynchronous translation and response
+// callbacks and reported here, once all of the instruction's memory work has
+// drained.
+void
+AmxAccl::reportInstructionFailure(const AmxInst &instruction) const
+{
+    const char *op_name = "AMX instruction";
+    switch (instruction.opcode) {
+        case AmxOpcode::Load:
+            op_name = "Tile load";
+            break;
+        case AmxOpcode::Store:
+            op_name = "Tile store";
+            break;
+        case AmxOpcode::Config:
+            op_name = "Tile configuration";
+            break;
+        default:
+            break;
+    }
+
     switch (instruction.failure) {
         case AmxInst::Failure::Translation:
             panic("AMX: %s %llu failed address translation: %s. "
@@ -40,11 +160,6 @@ AmxAccl::reportInstructionFailure(const AmxInst &instruction,
         case AmxInst::Failure::MissingData:
             panic("AMX: %s %llu received a response without data.", op_name,
                   static_cast<unsigned long long>(instruction.id));
-        case AmxInst::Failure::InvalidConfig:
-            panic("AMX: %s %llu has an invalid configuration: %s. "
-                  "Guest #GP delivery is not implemented.",
-                  op_name, static_cast<unsigned long long>(instruction.id),
-                  instruction.failureReason.c_str());
         case AmxInst::Failure::None:
             return;
     }
@@ -52,8 +167,82 @@ AmxAccl::reportInstructionFailure(const AmxInst &instruction,
     panic("AMX instruction has an unknown failure state");
 }
 
+void
+AmxAccl::commitResults(AmxInst *instruction)
+{
+    const uint64_t instruction_id = instruction->id;
+
+    reportInstructionFailure(*instruction);
+
+    switch (instruction->opcode) {
+        case AmxOpcode::Load: {
+            const uint8_t tile = instruction->destination;
+            tiles[tile] = instruction->loadData;
+            currentConfig.startRow = 0;
+            resourceTracker.complete(AmxResource::TileLoad);
+            amx::traceBFloat16Tile(currentConfig, tiles, tile);
+            DPRINTF(AMX, "Completed tile load %llu into TMM%u\n",
+                    static_cast<unsigned long long>(instruction_id), tile);
+            break;
+        }
+        case AmxOpcode::Store: {
+            // The rows were already written to memory during execution.
+            currentConfig.startRow = 0;
+            resourceTracker.complete(AmxResource::TileStore);
+            DPRINTF(AMX, "Completed tile store %llu from TMM%u\n",
+                    static_cast<unsigned long long>(instruction_id),
+                    instruction->source1);
+            break;
+        }
+        case AmxOpcode::Config: {
+            // The configuration can only be validated once it has been read.
+            const amx::TileConfig config =
+                amx::decodeTileConfig(instruction->configData);
+            std::string reason;
+            panic_if(!amx::validateTileConfig(config, reason),
+                     "AMX: Tile configuration %llu is invalid: %s. "
+                     "Guest #GP delivery is not implemented.",
+                     static_cast<unsigned long long>(instruction_id),
+                     reason.c_str());
+            commitTileConfig(config);
+            DPRINTF(AMX, "Committed tile configuration %llu with palette %u\n",
+                    static_cast<unsigned long long>(instruction_id),
+                    static_cast<unsigned>(config.paletteId));
+            break;
+        }
+        case AmxOpcode::DotProduct: {
+            amx::doDotProductBF16(currentConfig, instruction->destination,
+                                  instruction->source2,
+                                  tiles[instruction->destination],
+                                  instruction->source1Data,
+                                  instruction->source2Data);
+            resourceTracker.complete(AmxResource::DotProduct);
+            amx::traceFloat32Tile(currentConfig, tiles,
+                                  instruction->destination);
+            DPRINTF(AMX, "Completed TDPBF16PS %llu\n",
+                    static_cast<unsigned long long>(instruction_id));
+            break;
+        }
+        case AmxOpcode::Zero: {
+            const uint8_t tile = instruction->destination;
+            tiles[tile] = {};
+            resourceTracker.complete(AmxResource::TileZero);
+            amx::traceInt8Tile(currentConfig, tiles, tile);
+            DPRINTF(AMX, "Completed TILEZERO %llu for TMM%u\n",
+                    static_cast<unsigned long long>(instruction_id), tile);
+            break;
+        }
+        case AmxOpcode::DumpState:
+            panic("AMX state dumps finish at execution, not commit");
+    }
+
+    instruction->state = AmxInst::State::Completed;
+    eraseInstruction(instruction_id);
+    tryIssue();
+}
+
 // -------------------------------------------------------------------------
-// Tile load execution
+// Tile load
 // -------------------------------------------------------------------------
 
 void
@@ -73,34 +262,59 @@ AmxAccl::executeLoadInstruction(AmxInst *instruction)
             static_cast<unsigned long long>(instruction->id), tile, rows,
             row_bytes, start_row);
 
+    // Rows land in loadData and only reach the tile register at commit.
     beginMemoryInstruction(instruction);
     instruction->loadData = {};
-
     for (uint8_t row = start_row;
          row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
         dispatchMemoryRead(
-            instruction, tileRowAddress(*instruction, row),
-            row_bytes,
+            instruction, tileRowAddress(*instruction, row), row_bytes,
             reinterpret_cast<uint8_t *>(instruction->loadData.data[row]));
     }
-
     finishMemoryDispatch(instruction);
 }
 
 // -------------------------------------------------------------------------
-// Tile configuration execution
+// Tile store
+// -------------------------------------------------------------------------
+
+void
+AmxAccl::executeStoreInstruction(AmxInst *instruction)
+{
+    panic_if(!tilesConfigured, "AMX store issued before tile configuration");
+
+    const uint8_t tile = instruction->source1;
+    const uint16_t rows = currentConfig.rows[tile];
+    const uint16_t row_bytes = currentConfig.columnBytes[tile];
+    const uint8_t start_row = currentConfig.startRow;
+
+    DPRINTF(AMX,
+            "Executing tile store %llu from TMM%u (%u rows, %u bytes/row, "
+            "start row %u)\n",
+            static_cast<unsigned long long>(instruction->id), tile, rows,
+            row_bytes, start_row);
+
+    beginMemoryInstruction(instruction);
+    for (uint8_t row = start_row;
+         row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
+        dispatchMemoryWrite(
+            instruction, tileRowAddress(*instruction, row), row_bytes,
+            reinterpret_cast<const uint8_t *>(tiles[tile].data[row]));
+    }
+    finishMemoryDispatch(instruction);
+}
+
+// -------------------------------------------------------------------------
+// Tile configuration
 // -------------------------------------------------------------------------
 
 void
 AmxAccl::executeConfigInstruction(AmxInst *instruction)
 {
-    panic_if(instructionQueue.empty() ||
-                 &instructionQueue.front() != instruction,
-             "AMX tile configuration issued away from the queue front");
-
+    // Nothing to check yet: the configuration is validated at commit, once
+    // its 64 bytes have been read.
     beginMemoryInstruction(instruction);
     instruction->configData.fill(0);
-
     dispatchMemoryRead(instruction, instruction->address, TILE_CONFIG_BYTES,
                        instruction->configData.data());
     finishMemoryDispatch(instruction);
@@ -122,18 +336,61 @@ AmxAccl::commitTileConfig(const amx::TileConfig &config)
 }
 
 // -------------------------------------------------------------------------
-// State-dump for debugging
+// Dot product
+// -------------------------------------------------------------------------
+
+void
+AmxAccl::executeDotProductInstruction(AmxInst *instruction)
+{
+    panic_if(!tilesConfigured,
+             "AMX dot product issued before tile configuration");
+    amx::validateDotProductOp(currentConfig, instruction->destination,
+                              instruction->source1, instruction->source2);
+
+    // Read the sources now, as the TMUL does at dispatch. Once Executing, the
+    // scheduler no longer treats them as read, so younger loads may overwrite
+    // the source tiles (no WAR stall for the full dot-product latency).
+    instruction->source1Data = tiles[instruction->source1];
+    instruction->source2Data = tiles[instruction->source2];
+
+    DPRINTF(AMX, "Executing TDPBF16PS %llu; result is due at tick %llu\n",
+            static_cast<unsigned long long>(instruction->id),
+            static_cast<unsigned long long>(instruction->issueTick +
+                                            cyclesToTicks(dotProductLatency)));
+}
+
+// -------------------------------------------------------------------------
+// TILEZERO
+// -------------------------------------------------------------------------
+
+void
+AmxAccl::executeZeroInstruction(AmxInst *instruction)
+{
+    const uint8_t tile = instruction->destination;
+    panic_if(!tilesConfigured,
+             "AMX TILEZERO issued before tile configuration");
+    panic_if(currentConfig.startRow != 0,
+             "AMX: start_row must be 0 for arithmetic operations");
+    panic_if(currentConfig.rows[tile] == 0 ||
+                 currentConfig.columnBytes[tile] == 0,
+             "AMX TILEZERO target tile %u is not configured", tile);
+
+    // Nothing to start: the tile is cleared at commit.
+    DPRINTF(AMX,
+            "Executing TILEZERO %llu for TMM%u; result is due at tick %llu\n",
+            static_cast<unsigned long long>(instruction->id), tile,
+            static_cast<unsigned long long>(instruction->issueTick +
+                                            cyclesToTicks(zeroLatency)));
+}
+
+// -------------------------------------------------------------------------
+// State dump for debugging
 // -------------------------------------------------------------------------
 
 void
 AmxAccl::executeDumpStateInstruction(AmxInst *instruction)
 {
-    panic_if(!instruction || instruction->opcode != AmxOpcode::DumpState,
-             "AMX state dump execution received the wrong instruction");
-    panic_if(instructionQueue.empty() ||
-                 &instructionQueue.front() != instruction,
-             "AMX state dump issued away from the queue front");
-
+    // A barrier, so every older instruction has already completed.
     std::filesystem::create_directories(dumpDirectory);
     const std::filesystem::path output_path =
         std::filesystem::path(dumpDirectory) /
@@ -143,11 +400,11 @@ AmxAccl::executeDumpStateInstruction(AmxInst *instruction)
              output_path.string());
     writeStateDump(stream, instruction->dumpName);
 
-    instruction->state = AmxInst::State::Completed;
     const uint64_t completed_id = instruction->id;
     DPRINTF(AMX, "Wrote state dump %llu to %s\n",
             static_cast<unsigned long long>(completed_id),
             output_path.string());
+    instruction->state = AmxInst::State::Completed;
     eraseInstruction(completed_id);
 }
 
@@ -187,208 +444,6 @@ AmxAccl::writeStateDump(std::ostream &stream,
     }
 
     stream << '\n';
-}
-
-// -------------------------------------------------------------------------
-// Dot-product execution
-// -------------------------------------------------------------------------
-
-void
-AmxAccl::executeDotProductInstruction(AmxInst *instruction)
-{
-    panic_if(!tilesConfigured,
-             "AMX dot product issued before tile configuration");
-
-    amx::validateDotProductOp(currentConfig, instruction->destination,
-                              instruction->source1, instruction->source2);
-
-    // Read the sources now, as the TMUL does at dispatch. Once Executing, the
-    // scheduler no longer treats them as read, so younger loads may overwrite
-    // the source tiles (no WAR stall for the full dot-product latency).
-    instruction->source1Data = tiles[instruction->source1];
-    instruction->source2Data = tiles[instruction->source2];
-    instruction->state = AmxInst::State::Executing;
-
-    DPRINTF(AMX, "Executing TDPBF16PS %llu; result is due at tick %llu\n",
-            static_cast<unsigned long long>(instruction->id),
-            static_cast<unsigned long long>(instruction->issueTick +
-                                            cyclesToTicks(dotProductLatency)));
-}
-
-// -------------------------------------------------------------------------
-// TILEZERO execution
-// -------------------------------------------------------------------------
-
-void
-AmxAccl::executeZeroInstruction(AmxInst *instruction)
-{
-    panic_if(!instruction || instruction->opcode != AmxOpcode::Zero,
-             "AMX TILEZERO execution received the wrong instruction");
-    panic_if(!tilesConfigured,
-             "AMX TILEZERO issued before tile configuration");
-    panic_if(currentConfig.startRow != 0,
-             "AMX: start_row must be 0 for arithmetic operations");
-
-    const uint8_t tile = instruction->destination;
-    const uint16_t rows = currentConfig.rows[tile];
-    const uint16_t row_bytes = currentConfig.columnBytes[tile];
-    panic_if(rows == 0 || row_bytes == 0,
-             "AMX TILEZERO target tile %u is not configured", tile);
-
-    instruction->state = AmxInst::State::Executing;
-
-    DPRINTF(AMX,
-            "Executing TILEZERO %llu for TMM%u; result is due at tick %llu\n",
-            static_cast<unsigned long long>(instruction->id), tile,
-            static_cast<unsigned long long>(instruction->issueTick +
-                                            cyclesToTicks(zeroLatency)));
-}
-
-// -------------------------------------------------------------------------
-// Tile store execution
-// -------------------------------------------------------------------------
-
-void
-AmxAccl::executeStoreInstruction(AmxInst *instruction)
-{
-    panic_if(!instruction || instruction->opcode != AmxOpcode::Store,
-             "AMX tile store execution received the wrong instruction");
-    panic_if(!tilesConfigured, "AMX store issued before tile configuration");
-
-    const uint8_t tile = instruction->source1;
-    const uint16_t rows = currentConfig.rows[tile];
-    const uint16_t row_bytes = currentConfig.columnBytes[tile];
-    const uint8_t start_row = currentConfig.startRow;
-
-    DPRINTF(AMX,
-            "Executing tile store %llu from TMM%u (%u rows, %u bytes/row, "
-            "start row %u)\n",
-            static_cast<unsigned long long>(instruction->id), tile, rows,
-            row_bytes, start_row);
-
-    beginMemoryInstruction(instruction);
-
-    for (uint8_t row = start_row;
-         row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
-        dispatchMemoryWrite(
-            instruction, tileRowAddress(*instruction, row),
-            row_bytes,
-            reinterpret_cast<const uint8_t *>(tiles[tile].data[row]));
-    }
-
-    finishMemoryDispatch(instruction);
-}
-
-// -------------------------------------------------------------------------
-// Unified completion pipeline
-// -------------------------------------------------------------------------
-
-void
-AmxAccl::completeInstructionIfReady(uint64_t instruction_id)
-{
-    AmxInst *instruction = findInstruction(instruction_id);
-    if (!instruction || instruction->state != AmxInst::State::Executing) {
-        return;
-    }
-
-    const bool is_memory_op = instruction->opcode == AmxOpcode::Load ||
-                              instruction->opcode == AmxOpcode::Store ||
-                              instruction->opcode == AmxOpcode::Config;
-
-    if (is_memory_op) {
-        if (!instruction->translationDispatchComplete ||
-            instruction->outstandingTranslations != 0 ||
-            instruction->outstandingRequests != 0) {
-            return;
-        }
-        instruction->memoryComplete = true;
-    }
-
-    // Failed instructions can finish immediately without waiting for latency
-    if (instruction->failure == AmxInst::Failure::None &&
-        !instruction->latencyElapsed) {
-        return;
-    }
-
-    commitResults(instruction); // finish all the bookeeping/commit stuff
-                                      // for the instruction
-}
-
-void
-AmxAccl::commitResults(AmxInst *instruction)
-{
-    const uint64_t instruction_id = instruction->id;
-
-    switch (instruction->opcode) {
-        case AmxOpcode::DotProduct: {
-            amx::doDotProductBF16(currentConfig, instruction->destination,
-                                  instruction->source2,
-                                  tiles[instruction->destination],
-                                  instruction->source1Data,
-                                  instruction->source2Data);
-            amx::traceFloat32Tile(currentConfig, tiles,
-                                  instruction->destination);
-            resourceTracker.complete(AmxResource::DotProduct);
-            DPRINTF(AMX, "Completed TDPBF16PS %llu\n",
-                    static_cast<unsigned long long>(instruction_id));
-            break;
-        }
-        case AmxOpcode::Load: {
-            const uint8_t tile = instruction->destination;
-            resourceTracker.complete(AmxResource::TileLoad);
-            if (instruction->failure == AmxInst::Failure::None) {
-                tiles[tile] = instruction->loadData;
-                currentConfig.startRow = 0;
-            }
-            reportInstructionFailure(*instruction, "Tile load");
-            amx::traceBFloat16Tile(currentConfig, tiles, tile);
-            DPRINTF(AMX, "Completed tile load %llu into TMM%u\n",
-                    static_cast<unsigned long long>(instruction_id), tile);
-            break;
-        }
-        case AmxOpcode::Store: {
-            const uint8_t tile = instruction->source1;
-            resourceTracker.complete(AmxResource::TileStore);
-            if (instruction->failure == AmxInst::Failure::None) {
-                currentConfig.startRow = 0;
-            }
-            reportInstructionFailure(*instruction, "Tile store");
-            DPRINTF(AMX, "Completed tile store %llu from TMM%u\n",
-                    static_cast<unsigned long long>(instruction_id), tile);
-            break;
-        }
-        case AmxOpcode::Config: {
-            amx::TileConfig candidate = {};
-            if (instruction->failure == AmxInst::Failure::None) {
-                candidate = amx::decodeTileConfig(instruction->configData);
-                if (!amx::validateTileConfig(candidate,
-                                             instruction->failureReason)) {
-                    instruction->failure = AmxInst::Failure::InvalidConfig;
-                }
-            }
-            reportInstructionFailure(*instruction, "Tile configuration");
-            commitTileConfig(candidate);
-            DPRINTF(AMX, "Committed tile configuration %llu with palette %u\n",
-                    static_cast<unsigned long long>(instruction_id),
-                    static_cast<unsigned>(candidate.paletteId));
-            break;
-        }
-        case AmxOpcode::Zero: {
-            const uint8_t tile = instruction->destination;
-            tiles[tile] = {};
-            amx::traceInt8Tile(currentConfig, tiles, tile);
-            resourceTracker.complete(AmxResource::TileZero);
-            DPRINTF(AMX, "Completed TILEZERO %llu for TMM%u\n",
-                    static_cast<unsigned long long>(instruction_id), tile);
-            break;
-        }
-        case AmxOpcode::DumpState:
-            break;
-    }
-
-    instruction->state = AmxInst::State::Completed;
-    eraseInstruction(instruction_id);
-    tryIssue();
 }
 
 } // namespace gem5

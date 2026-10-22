@@ -1,18 +1,78 @@
 from m5.objects import (
     AmxAccl,
     CoherentXBar,
+    FP_ALU,
+    FP_MultDiv,
+    FUPool,
+    IntALU,
+    IQUnit,
+    PredALU,
+    RdWrPort,
+    ReadPort,
+    SIMD_Unit,
+    System_Unit,
+    WritePort,
+    X86IntMultDiv,
+    X86O3CPU,
 )
 
-from gem5.components.processors.cpu_types import CPUTypes
-from gem5.components.processors.simple_core import SimpleCore
+from gem5.components.processors.base_cpu_core import BaseCPUCore
 from gem5.isas import ISA
 
 
-class SapphireRapidsCore(SimpleCore):
-    """An out-of-order X86 core with it's parameter's modified to match saphire rapids and connected to a Intel AMX Accelerator sharing its L1D."""
+class SapphireRapidsCore(BaseCPUCore):
+    """An out-of-order X86 core with its parameters modified to match Sapphire
+    Rapids Golden Clove and connected to a Intel AMX Accelerator sharing its L1D."""
 
     def __init__(self, core_id: int, dump_directory: str):
-        super().__init__(cpu_type=CPUTypes.O3, core_id=core_id, isa=ISA.X86)
+        # Golden Cove / Sapphire Rapids specs (Intel Optimization Manual ch. 2.4 and
+        # the Sapphire Rapids core slide). Anything not set here is a gem5 default.
+        super().__init__(
+            core=X86O3CPU(
+                cpu_id=core_id,
+                fetchWidth=8,  # approximated by uop-cache delivery
+                fetchBufferSize=32,
+                fetchQueueSize=144,
+                decodeWidth=6,
+                renameWidth=6,
+                dispatchWidth=6,  # approximated by allocation width value
+                issueWidth=12,  # approximated by number of execution ports value
+                commitWidth=8,
+                numROBEntries=512,
+                LQEntries=240,
+                SQEntries=112,
+                numPhysIntRegs=288,
+                # Memory issue: separate AGUs, 3 for loads (ports 2, 3, 11) and 2 for
+                # store addresses (ports 7, 8). This is gem5's DefaultX86FUPool with
+                # only the three memory entries changed; its default is 4 units
+                # shared by loads and stores (ReadPort/WritePort have count 0).
+                instQueues=[
+                    IQUnit(
+                        fuPool=FUPool(
+                            FUList=[
+                                IntALU(),
+                                X86IntMultDiv(),
+                                FP_ALU(),
+                                FP_MultDiv(),
+                                ReadPort(count=3),
+                                SIMD_Unit(),
+                                PredALU(),
+                                WritePort(count=2),
+                                RdWrPort(count=0),
+                                System_Unit(),
+                            ]
+                        )
+                    )
+                ],
+                # L1D access: 3 loads and 2 stores per cycle, counted when a packet
+                # is sent to the L1D (store writeback is after commit). gem5's
+                # classic L1D has no port limit of its own, and the default here
+                # is 200 each (effectively off).
+                cacheLoadPorts=3,
+                cacheStorePorts=2,
+            ),
+            isa=ISA.X86,
+        )
 
         self.core.amx_accl = AmxAccl(dump_directory=dump_directory)
 
@@ -31,24 +91,6 @@ class SapphireRapidsCore(SimpleCore):
             response_latency=0,
             snoop_response_latency=0,
         )
-
-        # Golden Cove / Sapphire Rapids specs (Intel Optimization Manual ch. 2.4 and
-        # the Sapphire Rapids core slide). Anything not set here is a gem5 default.
-        self.core.fetchWidth = 8  # approximated by uop-cache delivery
-        self.core.fetchBufferSize = 32
-        self.core.fetchQueueSize = 144
-
-        self.core.decodeWidth = 6
-        self.core.renameWidth = 6
-        self.core.dispatchWidth = 6  # approximated by allocation width value
-        self.core.issueWidth = 12  # approximated by number of execution ports value
-        self.core.commitWidth = 8
-
-        self.core.numROBEntries = 512
-        self.core.LQEntries = 240
-        self.core.SQEntries = 112
-
-        self.core.numPhysIntRegs = 288
 
     # the cache hierarchy calls this method when we try and connect it to the CPU
     # here it's been modified to so that the xbar connects properly
