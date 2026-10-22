@@ -7,6 +7,7 @@
 #include "cpu/base.hh"
 #include "cpu/thread_context.hh"
 #include "debug/AMX.hh"
+#include "sim/full_system.hh"
 
 namespace gem5
 {
@@ -194,6 +195,22 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
 
     // Our translation is done, so we can mark it as complete
     instruction->outstandingTranslations--;
+
+    // SE mode maps memory lazily: the first access to a page faults, and the
+    // CPU's fault handler (invoke) allocates it. Use the same handler, then
+    // translate again. invoke panics, as it would for the CPU, if the
+    // address really is unmapped. In FS mode it would enter the guest's
+    // fault handler, so there the fault stays fatal (reported below).
+    if (fault != NoFault && !FullSystem &&
+        instruction->failure == AmxInst::Failure::None) {
+        DPRINTF(AMX, "Instruction %llu: %s at vaddr 0x%lx, retrying\n",
+                static_cast<unsigned long long>(instruction_id),
+                fault->name(), request->getVaddr());
+        fault->invoke(instruction->threadContext);
+        translateChunk(instruction, request->getVaddr(), request->getSize(),
+                       memory_chunk);
+        return;
+    }
 
     if (fault != NoFault) {
         if (instruction->failure == AmxInst::Failure::None)

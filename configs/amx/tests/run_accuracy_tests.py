@@ -44,9 +44,16 @@ def get_test_binaries():
     return sorted([p for p in ACCURACY_BIN_DIR.iterdir() if p.is_file()])
 
 
+def checks_output(dump_name):
+    # Tests with a .out reference (e.g. the GEMM) are checked on what the
+    # binary prints, not on an AMX state dump.
+    return (CORRECT_DIR / f"{dump_name}.out").is_file()
+
+
 def run_test(binary):
     dump_name = binary.name[:-5] if binary.name.endswith("_test") else binary.name
-    dump = ACTUAL_DIR / f"{dump_name}.txt"
+    suffix = ".out" if checks_output(dump_name) else ".txt"
+    dump = ACTUAL_DIR / f"{dump_name}{suffix}"
     log = ACTUAL_DIR / f"{dump_name}.log"
     output_dir = M5OUT_DIR / dump_name
 
@@ -63,6 +70,8 @@ def run_test(binary):
         "--dump-directory",
         str(ACTUAL_DIR),
     ]
+    if suffix == ".out":
+        command += ["--stdout-file", str(dump)]
     result = subprocess.run(
         command,
         cwd=ROOT,

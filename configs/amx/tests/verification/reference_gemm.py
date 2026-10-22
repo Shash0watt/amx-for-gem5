@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
 # Plain GEMM on the same inputs as intel_manual_{gem5,amx}_GEMM.cpp, accumulated
 # in FP32 in the same order as AMX, so the output should match bit-for-bit.
-# Writes C as raw FP32 hex to correct.out.
+# Writes C as raw FP32 hex to correct.out (or --output). --m/--n/--k set the
+# size, e.g. --m 48 --n 64 --k 256 --output amx_debug/correct/gemm.out for
+# accuracy/gemm_test.
 
+import argparse
 import struct
 
-M, N, K = 16, 512, 2048
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--m", type=int, default=16)
+parser.add_argument("--n", type=int, default=512)
+parser.add_argument("--k", type=int, default=2048)
+parser.add_argument("--output", default="correct.out")
+args = parser.parse_args()
+
+M, N, K = args.m, args.n, args.k
 VALUES = [0.0, 1.0, -2.0, 3.0, 0.5, -1.25, 0.1, 2.75]
 
 
@@ -42,6 +52,6 @@ for m in range(period):
         row.append(f"{fp32_bits(acc):08x}")
     C.append(row)
 
-with open("correct.out", "w") as f:
+with open(args.output, "w") as f:
     for m in range(M):
         f.write(" ".join(C[m % period][n % period] for n in range(N)) + "\n")

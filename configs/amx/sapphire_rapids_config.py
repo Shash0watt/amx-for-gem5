@@ -35,6 +35,17 @@ parser.add_argument(
     default=Path("amx_debug"),
     help="directory for AMX state dump files to use for testing",
 )
+parser.add_argument(
+    "--stdout-file",
+    type=Path,
+    default=None,
+    help="write the binary's stdout to this file instead of gem5's output",
+)
+parser.add_argument(
+    "--l2-size",
+    default="2MiB",
+    help="private L2 size (there is no L3, so this is the last level cache)",
+)
 args = parser.parse_args()
 
 binary_path = args.binary
@@ -65,7 +76,7 @@ cache_hierarchy = PrivateL1PrivateL2CacheHierarchy(
     # 8-way and gem5 needs a power-of-two set count, so I'm rounding up to 64 KiB
     l1d_size="64KiB",
     l1i_size="32KiB",
-    l2_size="2MiB",
+    l2_size=args.l2_size,
 )
 
 # Setup the board (SimpleBoard is specifically used for SE mode)
@@ -95,7 +106,8 @@ def workend_handler():
 # --- Setup the Workload and Run Simulator---
 ## ================================================
 board.set_se_binary_workload(
-    binary=BinaryResource(local_path=binary_path.as_posix())
+    binary=BinaryResource(local_path=binary_path.as_posix()),
+    stdout_file=args.stdout_file,
 )
 
 simulator = Simulator(
