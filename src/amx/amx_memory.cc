@@ -11,128 +11,120 @@
 namespace gem5
 {
 
-// at a high level a instruction follows this path
-// 1. reset the counters that track reads, writes & pending completion
-// 2. split each access at cache-line boundaries
-// (becaause you can only make one request per line)
-// 3. address translation on the vaddr
-// 4. send the request through the gem5 system
+// A memory instruction (tile load, tile store, tile config) follows this path
+// 1. sendReadRequest() / sendWriteRequest(): walk the instruction's rows
+// 2. sendRow(): split each row at cache-line boundaries
+//    (because you can only make one request per line)
+// 3. translateChunk(): address translation on the vaddr
+// 4. finishTranslation(): send the request through the gem5 system
 // ---
-// 5. gem5 callback -> copy returned read data or retire a completed write
-// 6. mark the instruction as completed
+// 5. handleMemoryResponse(): copy returned read data or retire a completed
+//    write
+// 6. completeInstructionIfReady(): mark the instruction as completed once
+//    every translation and response has come back
 
 // -------------------------------------------------------------------------
 // Memory-instruction dispatch
 // -------------------------------------------------------------------------
 
+// Rows [first_row, rows) are read from instruction->address + row * stride.
+// Row `row` lands at buffer + row * MaxColumnBytes, the layout of a
+// TileRegister. The 64-byte tile configuration is read as a single row.
 void
-AmxAccl::beginMemoryInstruction(AmxInst *instruction)
+AmxAccl::sendReadRequest(AmxInst *instruction, unsigned first_row,
+                         unsigned rows, size_t row_bytes, uint8_t *buffer)
+{
+    sendRows(instruction, MemoryAccess::Read, first_row, rows, row_bytes,
+             buffer);
+}
+
+// Same layout as sendReadRequest(), with the buffer as the source.
+void
+AmxAccl::sendWriteRequest(AmxInst *instruction, unsigned first_row,
+                          unsigned rows, size_t row_bytes,
+                          const uint8_t *buffer)
+{
+    sendRows(instruction, MemoryAccess::Write, first_row, rows, row_bytes,
+             const_cast<uint8_t *>(buffer));
+}
+
+void
+AmxAccl::sendRows(AmxInst *instruction, MemoryAccess access,
+                  unsigned first_row, unsigned rows, size_t row_bytes,
+                  uint8_t *buffer)
 {
     // Counters, make sure that we cannot finish until all translation
     // callbacks and all resulting memory responses have drained.
     instruction->outstandingTranslations = 0;
     instruction->outstandingRequests = 0;
 
-    // A translation callback is allowed to run synchronously while the caller
-    // is still creating the rest of the reads.
+    // A translation callback is allowed to run synchronously while we are
+    // still sending the rest of the rows, so the instruction must not count
+    // as finished until every row has been sent.
     instruction->translationDispatchComplete = false;
     instruction->completionScheduled = false;
     instruction->memoryComplete = false;
-}
 
-void
-AmxAccl::finishMemoryDispatch(AmxInst *instruction)
-{
-    // Save the id to use for the completion check.
-    const uint64_t instruction_id = instruction->id;
+    for (unsigned row = first_row;
+         row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
+        sendRow(instruction, access,
+                instruction->address + row * instruction->stride, row_bytes,
+                buffer + row * amx::MaxColumnBytes);
+    }
 
-    // Mark that no more 'work' will be created
+    // Mark that no more 'work' will be created, then check whether
+    // everything already came back while we were sending.
     instruction->translationDispatchComplete = true;
-    completeInstructionIfReady(instruction_id);
+    completeInstructionIfReady(instruction->id);
 }
 
-// this is the actual memory request
 void
-AmxAccl::dispatchMemoryRead(AmxInst *instruction, uint64_t virtual_address,
-                            size_t bytes, uint8_t *host_dest)
+AmxAccl::sendRow(AmxInst *instruction, MemoryAccess access,
+                 uint64_t virtual_address, size_t bytes, uint8_t *host_buf)
 {
     // AMX rows and the 64-byte tile configuration can start in the middle of
-    // a cache line or cross line boundaries, Issue one request for every
-    // cache line touched so the accesses behave like ordinary CPU cache-line
-    // traffic in gem5's memory hierarchy.
+    // a cache line or cross line boundaries, so issue one request for every
+    // cache line touched, like ordinary CPU cache-line traffic.
     const size_t cache_line_size = cpu->cacheLineSize();
 
-    // `current_address` is for walking the guest-visible byte range.
-    // `destination_offset` is for walking the output buffer (a tile row or
-    // config staging buffer), independent of cache-line boundaries.
+    // `current_address` walks the guest-visible byte range and `host_buf`
+    // walks the row's buffer, independent of cache-line boundaries.
     uint64_t current_address = virtual_address;
-    size_t destination_offset = 0;
     size_t remaining = bytes;
 
     while (remaining != 0 && instruction->failure == AmxInst::Failure::None) {
-        // Get the starting address of the containing cache line.
-        // The memoryrequest fetches the whole line so we need to keep track of
-        // packetOffset/bytes to know which portion of the returned cache
-        // line belongs to our AMX load
         const uint64_t line_address =
             current_address - (current_address % cache_line_size);
-        const size_t source_offset = current_address - line_address;
-        const size_t chunk_bytes =
-            std::min(remaining, cache_line_size - source_offset);
-
-        // This is the instruction along with all the metadata with this
-        // cache-line operation needed by other stages
-        dispatchMemoryChunk(instruction, line_address, cache_line_size,
-                            {MemoryAccess::Read, host_dest + destination_offset,
-                             source_offset, chunk_bytes});
-
-        destination_offset += chunk_bytes;
-        remaining -= chunk_bytes;
-        if (remaining != 0) {
-            current_address += chunk_bytes;
-        }
-    }
-}
-
-void
-AmxAccl::dispatchMemoryWrite(AmxInst *instruction, uint64_t virtual_address,
-                             size_t bytes, const uint8_t *host_src)
-{
-    const size_t cache_line_size = cpu->cacheLineSize();
-
-    uint64_t current_address = virtual_address;
-    size_t source_offset = 0;
-    size_t remaining = bytes;
-
-    while (remaining != 0 && instruction->failure == AmxInst::Failure::None) {
-        const size_t line_offset = current_address % cache_line_size;
+        const size_t line_offset = current_address - line_address;
         const size_t chunk_bytes =
             std::min(remaining, cache_line_size - line_offset);
 
-        // Writes cover only the bytes architecturally selected by colsb.
-        // Requesting an entire line here would overwrite adjacent guest data.
-        dispatchMemoryChunk(
-            instruction, current_address, chunk_bytes,
-            {MemoryAccess::Write,
-             const_cast<uint8_t *>(host_src + source_offset), 0, chunk_bytes});
-
-        source_offset += chunk_bytes;
-        remaining -= chunk_bytes;
-        if (remaining != 0) {
-            current_address += chunk_bytes;
+        if (access == MemoryAccess::Read) {
+            // Reads fetch the whole line; packetOffset/bytes record which
+            // part of the returned line belongs to this row.
+            translateChunk(instruction, line_address, cache_line_size,
+                           {access, host_buf, line_offset, chunk_bytes});
+        } else {
+            // Writes cover only the bytes architecturally selected by colsb.
+            // Writing an entire line would overwrite adjacent guest data.
+            translateChunk(instruction, current_address, chunk_bytes,
+                           {access, host_buf, 0, chunk_bytes});
         }
+
+        current_address += chunk_bytes;
+        host_buf += chunk_bytes;
+        remaining -= chunk_bytes;
     }
 }
 
 void
-AmxAccl::dispatchMemoryChunk(AmxInst *instruction,
-                             uint64_t virtual_address, size_t request_size,
-                             const MemoryChunk &memory_chunk)
+AmxAccl::translateChunk(AmxInst *instruction, uint64_t virtual_address,
+                        size_t request_size, const MemoryChunk &memory_chunk)
 {
     ThreadContext *tc = instruction->threadContext;
 
-    // We need to first translate out address to a physical one ot make a cach
-    // request
+    // We need to first translate our address to a physical one to make a
+    // cache request
     RequestPtr request = std::make_shared<Request>(
         virtual_address, request_size, 0, tc->getCpuPtr()->dataRequestorId(),
         tc->pcState().instAddr(), tc->contextId());
@@ -145,8 +137,8 @@ AmxAccl::dispatchMemoryChunk(AmxInst *instruction,
     auto *translation =
         new AmxTranslation(*this, instruction->id, memory_chunk);
 
-    // to perform a timing adadress translation, get the MMU from the thread
-    // context and use it's translate timing function so that we can get
+    // to perform a timing address translation, get the MMU from the thread
+    // context and use its translate timing function so that we can get
     // accurate page table walks and etc
     const BaseMMU::Mode mode = memory_chunk.access == MemoryAccess::Read ?
         BaseMMU::Read : BaseMMU::Write;
@@ -224,9 +216,6 @@ AmxAccl::finishTranslation(uint64_t instruction_id,
     panic_if(!request->hasPaddr(),
              "AMX translation for instruction %llu returned no paddr",
              static_cast<unsigned long long>(instruction_id));
-
-    // Tell gem5 that the translation phase has ended
-    request->setTranslateLatency();
 
     //  gem5's memory ports exchange Packets, not Requests directly.  The
     //  Request describes the access and its translated addresses; the Packet

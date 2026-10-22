@@ -172,15 +172,18 @@ class AmxAccl : public ClockedObject
     // ---------------------------------------------------------------------
     // Translation and timed memory access
     // ---------------------------------------------------------------------
-    void beginMemoryInstruction(AmxInst *instruction);
-    void finishMemoryDispatch(AmxInst *instruction);
-    void dispatchMemoryRead(AmxInst *instruction, uint64_t virtual_address,
-                            size_t bytes, uint8_t *host_dest);
-    void dispatchMemoryWrite(AmxInst *instruction, uint64_t virtual_address,
-                             size_t bytes, const uint8_t *host_src);
-    void dispatchMemoryChunk(AmxInst *instruction, uint64_t virtual_address,
-                             size_t request_size,
-                             const MemoryChunk &memory_chunk);
+    void sendReadRequest(AmxInst *instruction, unsigned first_row,
+                         unsigned rows, size_t row_bytes, uint8_t *buffer);
+    void sendWriteRequest(AmxInst *instruction, unsigned first_row,
+                          unsigned rows, size_t row_bytes,
+                          const uint8_t *buffer);
+    void sendRows(AmxInst *instruction, MemoryAccess access,
+                  unsigned first_row, unsigned rows, size_t row_bytes,
+                  uint8_t *buffer);
+    void sendRow(AmxInst *instruction, MemoryAccess access,
+                 uint64_t virtual_address, size_t bytes, uint8_t *host_buf);
+    void translateChunk(AmxInst *instruction, uint64_t virtual_address,
+                        size_t request_size, const MemoryChunk &memory_chunk);
     void finishTranslation(uint64_t instruction_id,
                            const MemoryChunk &memory_chunk,
                            const Fault &fault, const RequestPtr &request);

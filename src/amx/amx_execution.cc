@@ -19,17 +19,6 @@ namespace gem5
 // DumpState is the exception: it is a debug tool that finishes inside
 // executeDumpStateInstruction() without a latency or a commit.
 
-namespace
-{
-
-uint64_t
-tileRowAddress(const amx::Instruction &instruction, uint8_t row)
-{
-    return instruction.address + row * instruction.stride;
-}
-
-} // anonymous namespace
-
 // -------------------------------------------------------------------------
 // Issue
 // -------------------------------------------------------------------------
@@ -263,15 +252,9 @@ AmxAccl::executeLoadInstruction(AmxInst *instruction)
             row_bytes, start_row);
 
     // Rows land in loadData and only reach the tile register at commit.
-    beginMemoryInstruction(instruction);
     instruction->loadData = {};
-    for (uint8_t row = start_row;
-         row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
-        dispatchMemoryRead(
-            instruction, tileRowAddress(*instruction, row), row_bytes,
-            reinterpret_cast<uint8_t *>(instruction->loadData.data[row]));
-    }
-    finishMemoryDispatch(instruction);
+    sendReadRequest(instruction, start_row, rows, row_bytes,
+                    reinterpret_cast<uint8_t *>(instruction->loadData.data));
 }
 
 // -------------------------------------------------------------------------
@@ -294,14 +277,8 @@ AmxAccl::executeStoreInstruction(AmxInst *instruction)
             static_cast<unsigned long long>(instruction->id), tile, rows,
             row_bytes, start_row);
 
-    beginMemoryInstruction(instruction);
-    for (uint8_t row = start_row;
-         row < rows && instruction->failure == AmxInst::Failure::None; ++row) {
-        dispatchMemoryWrite(
-            instruction, tileRowAddress(*instruction, row), row_bytes,
-            reinterpret_cast<const uint8_t *>(tiles[tile].data[row]));
-    }
-    finishMemoryDispatch(instruction);
+    sendWriteRequest(instruction, start_row, rows, row_bytes,
+                     reinterpret_cast<const uint8_t *>(tiles[tile].data));
 }
 
 // -------------------------------------------------------------------------
@@ -313,11 +290,9 @@ AmxAccl::executeConfigInstruction(AmxInst *instruction)
 {
     // Nothing to check yet: the configuration is validated at commit, once
     // its 64 bytes have been read.
-    beginMemoryInstruction(instruction);
     instruction->configData.fill(0);
-    dispatchMemoryRead(instruction, instruction->address, TILE_CONFIG_BYTES,
-                       instruction->configData.data());
-    finishMemoryDispatch(instruction);
+    sendReadRequest(instruction, 0, 1, TILE_CONFIG_BYTES,
+                    instruction->configData.data());
 }
 
 void
