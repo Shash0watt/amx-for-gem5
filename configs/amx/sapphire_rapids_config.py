@@ -6,9 +6,6 @@ import m5
 import m5.debug
 
 from gem5.components.boards.simple_board import SimpleBoard
-from gem5.components.cachehierarchies.classic.private_l1_private_l2_cache_hierarchy import (
-    PrivateL1PrivateL2CacheHierarchy,
-)
 from gem5.components.memory.single_channel import DIMM_DDR5_4400
 
 # Simulation components
@@ -18,6 +15,9 @@ from gem5.simulate.exit_event import ExitEvent
 from gem5.simulate.simulator import Simulator
 
 from sapphire_rapids_core import SapphireRapidsCore
+from SPRThreeLevelCacheHierarchy import (
+    SPR_Private_L1_Private_L2_Shared_L3_Cache_Hierarchy,
+)
 
 ## =============================================================================
 ## --- Take in arguments for the config  (workload & amx state debug output) ---
@@ -44,7 +44,7 @@ parser.add_argument(
 parser.add_argument(
     "--l2-size",
     default="2MiB",
-    help="private L2 size (there is no L3, so this is the last level cache)",
+    help="private L2 size",
 )
 args = parser.parse_args()
 
@@ -71,11 +71,8 @@ processor = BaseCPUProcessor(
 # for core in processor.get_cores():
 #     core.get_simobject().progress_interval = "10kHz"  # Every 100 simulated us.
 
-cache_hierarchy = PrivateL1PrivateL2CacheHierarchy(
-    # Sapphire Rapids has a 48 KiB 12-way L1D, but the stock hierarchy is fixed at
-    # 8-way and gem5 needs a power-of-two set count, so I'm rounding up to 64 KiB
-    l1d_size="64KiB",
-    l1i_size="32KiB",
+# Defaults to Sapphire Rapids sizes and ways (see SPRThreeLevelCacheHierarchy.py)
+cache_hierarchy = SPR_Private_L1_Private_L2_Shared_L3_Cache_Hierarchy(
     l2_size=args.l2_size,
 )
 
