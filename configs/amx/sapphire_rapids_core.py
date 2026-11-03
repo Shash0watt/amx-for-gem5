@@ -1,6 +1,6 @@
 from m5.objects import (
     AmxAccl,
-    CoherentXBar,
+    AmxXbar,
     FP_ALU,
     FP_MultDiv,
     FUPool,
@@ -76,25 +76,15 @@ class SapphireRapidsCore(BaseCPUCore):
 
         self.core.amx_accl = AmxAccl(dump_directory=dump_directory)
 
-        # Coherent - becauuse the 03 cpu wants snooping.
-        # Zero latency - real load ports connect directly to the L1D, so the xbar should
-        # only add contention.
-        # Bandwidth (not precisely modeled) - Sapphire Rapids does 3 loads/cycle (2 for
-        # AVX-512/AMX). Packets with data occupy a path for at least 1 cycle, and each
-        # requester has one response path, so we get 1 load/cycle for the CPU and 1 line
-        # (64 B)/cycle for AMX. Writes share one request path: 1 write/cycle combined.
-        self.l1d_amx_xbar = CoherentXBar(
-            width=64,
-            header_latency=0,
-            frontend_latency=0,
-            forward_latency=0,
-            response_latency=0,
-            snoop_response_latency=0,
-        )
+        # Zero-delay mux between the CPU / AMX and the L1D. Real load ports
+        # connect directly to the L1D, so the mux adds no delay and no
+        # bandwidth limit of its own; the CPU is limited by cacheLoadPorts /
+        # cacheStorePorts above.
+        self.l1d_amx_xbar = AmxXbar()
 
     # the cache hierarchy calls this method when we try and connect it to the CPU
     # here it's been modified to so that the xbar connects properly
     def connect_dcache(self, port):
-        self.core.dcache_port = self.l1d_amx_xbar.cpu_side_ports
-        self.core.amx_accl.mem_side = self.l1d_amx_xbar.cpu_side_ports
-        self.l1d_amx_xbar.mem_side_ports = port
+        self.core.dcache_port = self.l1d_amx_xbar.cpu_side
+        self.core.amx_accl.mem_side = self.l1d_amx_xbar.accl_side
+        self.l1d_amx_xbar.mem_side = port

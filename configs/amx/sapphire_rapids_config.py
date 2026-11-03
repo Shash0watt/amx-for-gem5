@@ -41,11 +41,7 @@ parser.add_argument(
     default=None,
     help="write the binary's stdout to this file instead of gem5's output",
 )
-parser.add_argument(
-    "--l2-size",
-    default="2MiB",
-    help="private L2 size",
-)
+
 args = parser.parse_args()
 
 binary_path = args.binary
@@ -72,9 +68,7 @@ processor = BaseCPUProcessor(
 #     core.get_simobject().progress_interval = "10kHz"  # Every 100 simulated us.
 
 # Defaults to Sapphire Rapids sizes and ways (see SPRThreeLevelCacheHierarchy.py)
-cache_hierarchy = SPR_Private_L1_Private_L2_Shared_L3_Cache_Hierarchy(
-    l2_size=args.l2_size,
-)
+cache_hierarchy = SPR_Private_L1_Private_L2_Shared_L3_Cache_Hierarchy()
 
 # Setup the board (SimpleBoard is specifically used for SE mode)
 board = SimpleBoard(

@@ -148,6 +148,7 @@ class SPR_Private_L1_Private_L2_Shared_L3_Cache_Hierarchy(
 
         return cluster
 
+    # from exmaple (unused in SE mode on X86Board
     def _setup_io_cache(self, board: AbstractBoard) -> None:
         """Create a cache for coherent I/O connections"""
         self.iocache = Cache(

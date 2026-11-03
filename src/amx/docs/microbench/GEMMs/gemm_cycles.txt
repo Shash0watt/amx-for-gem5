@@ -1,2 +1,2 @@
-gem5: 401,603 cycles
+gem5: -147,872 cycles at 2.1 ghz
 hardware: 143,393 cycles at 2.1 ghz

@@ -1,0 +1,66 @@
+Global frequency set at 1000000000000 ticks per second
+src/mem/dram_interface.cc:690: warn: DRAM device capacity (2048 Mbytes) does not match the address range assigned (512 Mbytes)
+src/mem/dram_interface.cc:690: warn: DRAM device capacity (2048 Mbytes) does not match the address range assigned (512 Mbytes)
+src/base/statistics.hh:279: warn: One of the stats is a legacy stat. Legacy stat is a stat that does not belong to any statistics::Group. Legacy stat is deprecated.
+src/base/stats/storage.hh:278: warn: Bucket size (4) does not divide range [1:32] into equal-sized buckets. Rounding up.
+src/base/stats/storage.hh:278: warn: Bucket size (4) does not divide range [1:8] into equal-sized buckets. Rounding up.
+src/base/remote_gdb.cc:418: warn: Sockets disabled, not accepting gdb connections
+Redirecting stdout and stderr to /tmp/claude-1000/-home-sjaguri-amx-for-gem5/a872bd2d-0623-4815-9dcf-bc918e09b51c/scratchpad/r_no-xbar/simout.txt
+gem5 Simulator System.  https://www.gem5.org
+gem5 is copyrighted software; use the --copyright option for details.
+
+gem5 version 25.1.0.1
+gem5 compiled Oct 22 2026 15:10:28
+gem5 started Nov  2 2026 14:07:30
+gem5 executing on SJ, pid 20708
+command line: ./build/X86/gem5.opt -r -d /tmp/claude-1000/-home-sjaguri-amx-for-gem5/a872bd2d-0623-4815-9dcf-bc918e09b51c/scratchpad/r_no-xbar configs/amx/tests/xbar/load_cycles_config.py --cpu no-xbar
+
+info: Standard input is not a terminal, disabling listeners.
+src/sim/mem_state.cc:443: info: Increasing stack size by one page.
+src/sim/syscall_emul.cc:86: warn: ignoring syscall set_robust_list(...)
+src/sim/syscall_emul.cc:86: warn: ignoring syscall rseq(...)
+src/sim/syscall_emul.cc:86: warn: ignoring syscall mprotect(...)
+src/sim/syscall_emul.cc:86: warn: ignoring syscall mprotect(...)
+src/sim/syscall_emul.cc:86: warn: ignoring syscall mprotect(...)
+
+--- Start of region (1 cycle = 476 ticks) ---
+
+113983912: board.cache_hierarchy.l1dcaches: access for ReadReq [44cf8:44cff] hit state: e (M) writable: 1 readable: 1 dirty: 1 prefetched: 0 | tag: 0x22 secure: 0 valid: 1 | set: 0x33 way: 0x3
+113987244: board.cache_hierarchy.l1dcaches: access for ReadReq [4080:4087] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x2 way: 0x6
+113987244: board.cache_hierarchy.l1dcaches: access for WriteReq [44cf8:44cff] hit state: e (M) writable: 1 readable: 1 dirty: 1 prefetched: 0 | tag: 0x22 secure: 0 valid: 1 | set: 0x33 way: 0x3
+113987720: board.cache_hierarchy.l1dcaches: access for ReadReq [4088:408f] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x2 way: 0x6
+113987720: board.cache_hierarchy.l1dcaches: access for ReadReq [4090:4097] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x2 way: 0x6
+113987720: board.cache_hierarchy.l1dcaches: access for ReadReq [4098:409f] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x2 way: 0x6
+113987720: board.cache_hierarchy.l1dcaches: access for ReadReq [40a0:40a7] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x2 way: 0x6
+113988196: board.cache_hierarchy.l1dcaches: access for ReadReq [40a8:40af] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x2 way: 0x6
+113988196: board.cache_hierarchy.l1dcaches: access for ReadReq [40b0:40b7] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x2 way: 0x6
+113988196: board.cache_hierarchy.l1dcaches: access for ReadReq [40b8:40bf] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x2 way: 0x6
+113988196: board.cache_hierarchy.l1dcaches: access for ReadReq [40c0:40c7] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x3 way: 0x2
+113988672: board.cache_hierarchy.l1dcaches: access for ReadReq [40c8:40cf] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x3 way: 0x2
+113989148: board.cache_hierarchy.l1dcaches: access for ReadReq [40d0:40d7] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x3 way: 0x2
+113989148: board.cache_hierarchy.l1dcaches: access for ReadReq [40d8:40df] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x3 way: 0x2
+113989148: board.cache_hierarchy.l1dcaches: access for ReadReq [40e0:40e7] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x3 way: 0x2
+113989148: board.cache_hierarchy.l1dcaches: access for ReadReq [40e8:40ef] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x3 way: 0x2
+113989624: board.cache_hierarchy.l1dcaches: access for ReadReq [40f0:40f7] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x3 way: 0x2
+113989624: board.cache_hierarchy.l1dcaches: access for ReadReq [40f8:40ff] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x3 way: 0x2
+113989624: board.cache_hierarchy.l1dcaches: access for ReadReq [4100:4107] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x4 way: 0x4
+113989624: board.cache_hierarchy.l1dcaches: access for ReadReq [4108:410f] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x4 way: 0x4
+113990100: board.cache_hierarchy.l1dcaches: access for ReadReq [4110:4117] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x4 way: 0x4
+113990100: board.cache_hierarchy.l1dcaches: access for ReadReq [4118:411f] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x4 way: 0x4
+113990576: board.cache_hierarchy.l1dcaches: access for ReadReq [4120:4127] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x4 way: 0x4
+113990576: board.cache_hierarchy.l1dcaches: access for ReadReq [4128:412f] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x4 way: 0x4
+113990576: board.cache_hierarchy.l1dcaches: access for ReadReq [4130:4137] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x4 way: 0x4
+113990576: board.cache_hierarchy.l1dcaches: access for ReadReq [4138:413f] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x4 way: 0x4
+113991052: board.cache_hierarchy.l1dcaches: access for ReadReq [4140:4147] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x5 way: 0x7
+113991052: board.cache_hierarchy.l1dcaches: access for ReadReq [4148:414f] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x5 way: 0x7
+113991052: board.cache_hierarchy.l1dcaches: access for ReadReq [4150:4157] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x5 way: 0x7
+113991052: board.cache_hierarchy.l1dcaches: access for ReadReq [4158:415f] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x5 way: 0x7
+113991528: board.cache_hierarchy.l1dcaches: access for ReadReq [4160:4167] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x5 way: 0x7
+113991528: board.cache_hierarchy.l1dcaches: access for ReadReq [44cf8:44cff] hit state: e (M) writable: 1 readable: 1 dirty: 1 prefetched: 0 | tag: 0x22 secure: 0 valid: 1 | set: 0x33 way: 0x3
+113992004: board.cache_hierarchy.l1dcaches: access for ReadReq [4168:416f] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x5 way: 0x7
+113992004: board.cache_hierarchy.l1dcaches: access for ReadReq [4170:4177] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x5 way: 0x7
+113992004: board.cache_hierarchy.l1dcaches: access for ReadReq [4178:417f] hit state: 6 (E) writable: 1 readable: 1 dirty: 0 prefetched: 0 | tag: 0x2 secure: 0 valid: 1 | set: 0x5 way: 0x7
+113995336: board.cache_hierarchy.l1dcaches: access for WriteReq [44cf8:44cff] hit state: e (M) writable: 1 readable: 1 dirty: 1 prefetched: 0 | tag: 0x22 secure: 0 valid: 1 | set: 0x33 way: 0x3
+
+--- End of region ---
+
