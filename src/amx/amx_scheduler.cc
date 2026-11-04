@@ -166,6 +166,12 @@ AmxAccl::hasOlderTileHazard(const AmxInst &instruction) const
             continue;
         }
 
+        // Dot products accumulating into the same C don't wait for each
+        // other's results, only for the issue interval.
+        if (instruction.accumulatesAfter(older)) {
+            continue;
+        }
+
         // Older work counts whether it is executing or still pending, so a
         // younger instruction can never pass an older one that uses its tiles.
         const bool raw = instruction.hasRAW(older);

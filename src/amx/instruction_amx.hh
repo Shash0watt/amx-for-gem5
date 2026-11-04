@@ -74,6 +74,12 @@ struct Instruction
     bool hasWAR(const Instruction &older) const;
     bool hasWAW(const Instruction &older) const;
 
+    // True when this dot product only accumulates into the same C as an
+    // older dot product that has already issued. Hardware runs such a chain
+    // at the issue rate instead of waiting for each result, so it is not a
+    // hazard.
+    bool accumulatesAfter(const Instruction &older) const;
+
     uint64_t id;
     Opcode opcode;
     int8_t destination;

@@ -106,6 +106,10 @@ The main scheduling rules are:
   every older instruction has completed, and younger work cannot pass it.
 - Tile and memory dependencies are checked against every older unfinished
   instruction in the queue, whether it is still pending or already executing.
+- One exception: a dot product that only accumulates into the same C as an
+  older, already issued dot product does not wait for its result (hardware
+  runs such a chain at the issue rate). Using that C as source A or B is
+  still a dependency.
 - An unavailable pipeline blocks only instructions using that pipeline. The
   scheduler continues looking for independent work on other pipelines.
 - Executing instructions remain in the queue until completion, but the

@@ -147,5 +147,19 @@ Instruction::hasWAW(const Instruction &older) const
     return false;
 }
 
+bool
+Instruction::accumulatesAfter(const Instruction &older) const
+{
+    // The older dot product must have issued, so this one still issues and
+    // (with the same fixed latency) completes after it. The arithmetic runs
+    // at completion and reads C then, so it adds onto the older result.
+    // Using that C as source A or B is still a real dependency.
+    return opcode == Opcode::DotProduct &&
+           older.opcode == Opcode::DotProduct &&
+           older.state == State::Executing &&
+           destination == older.destination &&
+           source1 != older.destination && source2 != older.destination;
+}
+
 } // namespace amx
 } // namespace gem5
