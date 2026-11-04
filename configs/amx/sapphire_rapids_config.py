@@ -82,16 +82,33 @@ board = SimpleBoard(
 # --- add some helpers to mark the simout ---
 ## ================================================
 # ./[path to gem5] --debug-help gives more flag that we can use
+
+# One core cycle in ticks (1 tick = 1 ps): 1 / 2.1 GHz = 476 ticks.
+TICKS_PER_CYCLE = round(1e12 / 2.1e9)
+
+
 def workbegin_handler():
-    m5.debug.flags["AMX"].enable()
-    print(f"\n--- Start of AMX Region ---\n")
-    yield False  # Yielding true would end the simulaltion right away
+    while True:
+        global region_start_tick
+        region_start_tick = m5.curTick()
+        m5.debug.flags["AMX"].enable()
+        print(
+            f"\n--- Start of AMX Region --- (tick {region_start_tick})\n",
+            flush=True,
+        )
+        yield False  # Yielding true would end the simulaltion right away
 
 
 def workend_handler():
-    m5.debug.flags["AMX"].disable()
-    print(f"\n--- END of AMX Region ---\n")
-    yield False 
+    while True:
+        m5.debug.flags["AMX"].disable()
+        ticks = m5.curTick() - region_start_tick
+        print(
+            f"\n--- END of AMX Region --- (tick {m5.curTick()}, "
+            f"{ticks // TICKS_PER_CYCLE} cycles)\n",
+            flush=True,
+        )
+        yield False
 
 ## ================================================
 # --- Setup the Workload and Run Simulator---

@@ -22,15 +22,16 @@ from gem5.isas import ISA
 
 class SapphireRapidsCore(BaseCPUCore):
     """An out-of-order X86 core with its parameters modified to match Sapphire
-    Rapids Golden Clove and connected to a Intel AMX Accelerator sharing its L1D."""
+    Rapids Golden Clove and connected to a Intel AMX Accelerator sharing its L1D.
+    """
 
     def __init__(self, core_id: int, dump_directory: str):
-        # Golden Cove / Sapphire Rapids specs (Intel Optimization Manual ch. 2.4 and
-        # the Sapphire Rapids core slide). Anything not set here is a gem5 default.
+        # These numbers are based of the Golden Clove microarch sheet and from the
+        # intel optimisation manual's section on sapphire rappids
         super().__init__(
             core=X86O3CPU(
                 cpu_id=core_id,
-                fetchWidth=8,  # approximated by uop-cache delivery
+                fetchWidth=8,  # approximated by uop-cache delivery value
                 fetchBufferSize=32,
                 fetchQueueSize=144,
                 decodeWidth=6,
@@ -42,10 +43,9 @@ class SapphireRapidsCore(BaseCPUCore):
                 LQEntries=240,
                 SQEntries=112,
                 numPhysIntRegs=288,
-                # Memory issue: separate AGUs, 3 for loads (ports 2, 3, 11) and 2 for
-                # store addresses (ports 7, 8). This is gem5's DefaultX86FUPool with
-                # only the three memory entries changed; its default is 4 units
-                # shared by loads and stores (ReadPort/WritePort have count 0).
+
+                # The FUPool limits how many loads and stores can issue from the IQ each cycle
+                # cacheLoadPorts and cacheStorePorts limit how many packets are sent to the L1D each cycle
                 instQueues=[
                     IQUnit(
                         fuPool=FUPool(
@@ -64,10 +64,8 @@ class SapphireRapidsCore(BaseCPUCore):
                         )
                     )
                 ],
-                # L1D access: 3 loads and 2 stores per cycle, counted when a packet
-                # is sent to the L1D (store writeback is after commit). gem5's
-                # classic L1D has no port limit of its own, and the default here
-                # is 200 each (effectively off).
+                # We are trying to model 3 loads and 2 stores per cycle, the default here
+                # is 200 each (effectively no limit)
                 cacheLoadPorts=3,
                 cacheStorePorts=2,
             ),
@@ -76,10 +74,9 @@ class SapphireRapidsCore(BaseCPUCore):
 
         self.core.amx_accl = AmxAccl(dump_directory=dump_directory)
 
-        # Zero-delay mux between the CPU / AMX and the L1D. Real load ports
-        # connect directly to the L1D, so the mux adds no delay and no
-        # bandwidth limit of its own; the CPU is limited by cacheLoadPorts /
-        # cacheStorePorts above.
+        # Becase real load ports connect directly to the L1D, so the crossbarr shouldn't 
+        # add any delay or serialize to 1 load per cycle. This is the basic crossbar but 
+        # with no delay or serialising happening anymore
         self.l1d_amx_xbar = AmxCoherentXBar()
 
     # the cache hierarchy calls this method when we try and connect it to the CPU

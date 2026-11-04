@@ -24,6 +24,10 @@ ACCURACY_RUNNER = configs/amx/tests/run_accuracy_tests.py
 
 all: $(TARGETS)
 
+# The intrinsic microbenchmarks mirror hardware runs built with -O2, so the
+# loops around the AMX ops must compile the same way.
+configs/amx/binaries/intrinsic/%: CXXFLAGS += -O2
+
 # pattern rule to compile c++ files
 configs/amx/binaries/%: configs/amx/tests/%.cpp
 	@mkdir -p $(dir $@)
