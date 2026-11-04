@@ -1,4 +1,4 @@
-from m5.objects import AmxAccl, AmxXbar, X86O3CPU
+from m5.objects import AmxAccl, AmxCoherentXBar, X86O3CPU
 
 from gem5.components.processors.base_cpu_core import BaseCPUCore
 from gem5.isas import ISA
@@ -11,9 +11,9 @@ class XbarCPU(BaseCPUCore):
         self.core.amx_accl = AmxAccl(dump_directory=dump_directory)
 
         # Same mux as SapphireRapidsCore.
-        self.l1d_amx_xbar = AmxXbar()
+        self.l1d_amx_xbar = AmxCoherentXBar()
 
     def connect_dcache(self, port):
-        self.core.dcache_port = self.l1d_amx_xbar.cpu_side
-        self.core.amx_accl.mem_side = self.l1d_amx_xbar.accl_side
-        self.l1d_amx_xbar.mem_side = port
+        self.core.dcache_port = self.l1d_amx_xbar.cpu_side_ports
+        self.core.amx_accl.mem_side = self.l1d_amx_xbar.cpu_side_ports
+        self.l1d_amx_xbar.mem_side_ports = port

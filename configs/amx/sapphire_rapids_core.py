@@ -1,6 +1,6 @@
 from m5.objects import (
     AmxAccl,
-    AmxXbar,
+    AmxCoherentXBar,
     FP_ALU,
     FP_MultDiv,
     FUPool,
@@ -80,11 +80,11 @@ class SapphireRapidsCore(BaseCPUCore):
         # connect directly to the L1D, so the mux adds no delay and no
         # bandwidth limit of its own; the CPU is limited by cacheLoadPorts /
         # cacheStorePorts above.
-        self.l1d_amx_xbar = AmxXbar()
+        self.l1d_amx_xbar = AmxCoherentXBar()
 
     # the cache hierarchy calls this method when we try and connect it to the CPU
     # here it's been modified to so that the xbar connects properly
     def connect_dcache(self, port):
-        self.core.dcache_port = self.l1d_amx_xbar.cpu_side
-        self.core.amx_accl.mem_side = self.l1d_amx_xbar.accl_side
-        self.l1d_amx_xbar.mem_side = port
+        self.core.dcache_port = self.l1d_amx_xbar.cpu_side_ports
+        self.core.amx_accl.mem_side = self.l1d_amx_xbar.cpu_side_ports
+        self.l1d_amx_xbar.mem_side_ports = port

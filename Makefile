@@ -27,7 +27,7 @@ all: $(TARGETS)
 # pattern rule to compile c++ files
 configs/amx/binaries/%: configs/amx/tests/%.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) -o $@ $< $(INCLUDES) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(INCLUDES) $(LDFLAGS)
 
 # pattern rule to compile c files
 configs/amx/binaries/%: configs/amx/tests/%.c

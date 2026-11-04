@@ -1,0 +1,18 @@
+Import('*')
+
+# Copy of gem5's coherent crossbar with a zero_occupancy option, used as a
+# zero-delay mux between the CPU / AMX and the L1D.
+SimObject('AmxXBar.py', sim_objects=['AmxBaseXBar', 'AmxCoherentXBar'])
+
+Source('amx_base_xbar.cc')
+Source('amx_coherent_xbar.cc')
+
+DebugFlag('AmxBaseXBar')
+DebugFlag('AmxCoherentXBar')
+
+# The old hand-written mux in archive/, no longer used by the AMX configs.
+SimObject('archive/AmxMux.py', sim_objects=['AmxXbar'])
+
+Source('archive/amx_xbar.cc')
+
+DebugFlag('AmxXbar')
