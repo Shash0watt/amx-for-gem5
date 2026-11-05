@@ -72,7 +72,7 @@ cache_hierarchy = SPR_Private_L1_Private_L2_Shared_L3_Cache_Hierarchy()
 
 # Setup the board (SimpleBoard is specifically used for SE mode)
 board = SimpleBoard(
-    clk_freq="2.1GHz",
+    clk_freq="2.4GHz",  # Sapphire Rapids settles at ~2.4 GHz under AMX
     processor=processor,
     memory=memory,
     cache_hierarchy=cache_hierarchy,
@@ -83,8 +83,8 @@ board = SimpleBoard(
 ## ================================================
 # ./[path to gem5] --debug-help gives more flag that we can use
 
-# One core cycle in ticks (1 tick = 1 ps): 1 / 2.1 GHz = 476 ticks.
-TICKS_PER_CYCLE = round(1e12 / 2.1e9)
+# One core cycle in ticks (1 tick = 1 ps): 1 / 2.4 GHz = 417 ticks.
+TICKS_PER_CYCLE = round(1e12 / 2.4e9)
 
 
 def workbegin_handler():

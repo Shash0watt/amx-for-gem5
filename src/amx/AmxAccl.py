@@ -25,10 +25,11 @@ class AmxAccl(ClockedObject):
         8, "minimum cycles between issued tile load instructions"
     )
 
+    # Intel's table says 45, but a load from L1 measures ~24 on Sapphire
+    # Rapids (src/amx/docs/microbench/intrinsic/results.md). gem5's L1 alone
+    # takes ~10, so this floor sets the L1 latency.
     load_latency = Param.Cycles(
-        45, "minimum issue-to-completion latency for tile load instructions"
-        # should I actually keep this or let this be 0..
-        # will memory ever be faster than 45 cycles
+        24, "minimum issue-to-completion latency for tile load instructions"
     )
 
     dp_issue_throughput = Param.Cycles(

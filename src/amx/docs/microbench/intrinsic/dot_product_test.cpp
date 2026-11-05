@@ -1,4 +1,3 @@
-// TDPBF16PS latency and throughput on real hardware
 //   g++ -O2 -mamx-tile -mamx-bf16 -o dot_product_test dot_product_test.cpp
 //   AMX_BENCH_CPU=<core> ./dot_product_test
 
@@ -6,10 +5,10 @@
 
 #include "perf_helpers.h"
 
-const int Ops = 960; // divisible by 2 and 6, the loop sizes below
+const int Ops = 960;
 
 alignas(64) TileConfig config;
-alignas(64) uint16_t ones[512]; // one 16 x 64-byte tile of BF16 1.0
+alignas(64) uint16_t ones[512];
 
 int
 main()
@@ -20,11 +19,12 @@ main()
     for (int i = 0; i < 512; ++i) {
         ones[i] = 0x3f80;
     }
-    asm volatile("" ::: "memory"); // the intrinsics don't say they read memory
-    _tile_loadconfig(&config);     // also sets every tile to zero
+    asm volatile("" ::: "memory");
+    _tile_loadconfig(&config);
 
-    // Latency: each dot product needs the previous one's result, through
-    // C, A or B. The tiles are zero so the fed-back values can't overflow.
+    // Latency through each operand: every dot product reads the result of
+    // the one before as its C, A or B, so cycles per op = how long that
+    // operand waits for the previous result.
     region("TDPBF16PS: chain through C", Ops, [] {
         for (int i = 0; i < Ops; ++i) {
             _tile_dpbf16ps(0, 6, 7);
@@ -43,9 +43,8 @@ main()
         }
     });
 
-    // Throughput: six independent accumulators. Each is reused only every
-    // six dot products, after its result is ready, so only the issue rate
-    // limits them.
+    // Throughput: six dot products into six different C tiles, so none
+    // waits for another's result and cycles per op = the issue interval.
     _tile_loadd(6, ones, 64);
     _tile_loadd(7, ones, 64);
     region("TDPBF16PS: six accumulators", Ops, [] {

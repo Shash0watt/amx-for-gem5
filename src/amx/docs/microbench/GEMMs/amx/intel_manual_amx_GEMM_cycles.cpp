@@ -184,9 +184,13 @@ main()
 
     _tile_loadconfig(&config);
 
-    // Warm-up run (not timed): pays for first AMX use (the OS allocating tile
-    // state, AMX power-up) and brings A, B and C into the caches.
-    gemm(packed_a, packed_b, C);
+    // Warm-up (not timed): run the GEMM for 200 ms so the AMX frequency
+    // license settles. This also pays for first AMX use (the OS allocating
+    // tile state, AMX power-up) and brings A, B and C into the caches.
+    const uint64_t warmUpStart = getNanos();
+    while (getNanos() - warmUpStart < 200000000) {
+        gemm(packed_a, packed_b, C);
+    }
 
     // Cost of reading the counter itself, subtracted from the result below.
     uint64_t start = getCycles(perf_fd);
